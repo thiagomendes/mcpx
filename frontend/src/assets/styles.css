@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6366f1;
+}
+
+/* Gradient text utility */
+.text-gradient {
+  background: linear-gradient(135deg, #6366f1, #ec4899);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Gradient background utility */
+.bg-gradient-primary {
+  background: linear-gradient(135deg, #6366f1, #ec4899);
+}
+
+/* Card styles */
+.card {
+  @apply bg-background-card border border-border rounded-lg p-6 transition-all duration-200;
+}
+
+.card:hover {
+  @apply border-border-hover;
+}
+
+/* Button styles */
+.btn {
+  @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-primary {
+  @apply bg-gradient-primary text-white hover:opacity-90;
+}
+
+.btn-secondary {
+  @apply bg-transparent border-2 border-primary text-primary hover:bg-primary hover:text-white;
+}
+
+.btn-ghost {
+  @apply bg-transparent text-gray-400 hover:text-white hover:bg-background-hover;
+}
+
+/* Input styles */
+.input {
+  @apply w-full px-4 py-2 bg-background-darker border border-border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-primary transition-colors;
+}
+
+/* Badge styles */
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+}
+
+.badge-success {
+  @apply bg-green-500/20 text-green-400;
+}
+
+.badge-warning {
+  @apply bg-yellow-500/20 text-yellow-400;
+}
+
+.badge-error {
+  @apply bg-red-500/20 text-red-400;
+}
