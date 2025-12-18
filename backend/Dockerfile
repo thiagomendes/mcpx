@@ -19,4 +19,8 @@ RUN cargo build
 
 EXPOSE 8080
 
-CMD ["cargo", "run"]
+# Enable backtraces for debugging
+ENV RUST_BACKTRACE=1
+
+# Run the binary directly
+CMD ["./target/debug/mcpx-backend"]

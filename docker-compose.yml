@@ -51,9 +51,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-      - backend_target:/app/target
+    # Note: removed ./backend:/app mount that was overwriting built binary
+    # For hot-reload development, run backend locally instead
 
   frontend:
     build:

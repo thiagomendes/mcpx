@@ -1,0 +1,60 @@
+﻿#1 [internal] load local bake definitions
+#1 reading from stdin 358B 0.0s done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 516B 0.0s done
+#2 DONE 0.1s
+
+#3 [internal] load metadata for docker.io/rustlang/rust:nightly-bookworm
+#3 DONE 1.7s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 56B done
+#4 DONE 0.0s
+
+#5 [1/8] FROM docker.io/rustlang/rust:nightly-bookworm@sha256:f05b1d4be50a6ebb6fef3bbedc4192ddd5390a4cccb79c5eed36a86dac162473
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 1.23kB done
+#6 DONE 0.0s
+
+#7 [4/8] RUN mkdir src && echo "fn main() {}" > src/main.rs
+#7 CACHED
+
+#8 [7/8] COPY . .
+#8 CACHED
+
+#9 [2/8] WORKDIR /app
+#9 CACHED
+
+#10 [3/8] COPY Cargo.toml Cargo.lock* ./
+#10 CACHED
+
+#11 [6/8] RUN rm -rf src
+#11 CACHED
+
+#12 [5/8] RUN cargo build 2>/dev/null || true
+#12 CACHED
+
+#13 [8/8] RUN cargo build
+#13 CACHED
+
+#14 exporting to image
+#14 exporting layers done
+#14 writing image sha256:33e0d12bb5b4aa7d873317cee38660cd15c02c595bb83a5f2666e4d63f6c0afa 0.0s done
+#14 naming to docker.io/library/mcpx-backend 0.0s done
+#14 DONE 0.0s
+
+#15 resolving provenance for metadata file
+#15 DONE 0.0s
+docker :  backend  Built
+No linha:1 caractere:1
++ docker compose build backend 2>&1 | Out-File -FilePath 
+build.log -Enc ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ( backend  Bu 
+   ilt:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

@@ -1,7 +1,8 @@
 use axum::{
+    async_trait,
     body::Body,
-    extract::State,
-    http::{Request, StatusCode},
+    extract::{FromRequestParts, State},
+    http::{request::Parts, Request, StatusCode},
     middleware::Next,
     response::Response,
 };
@@ -24,8 +25,8 @@ pub async fn require_auth(
     Ok(next.run(request).await)
 }
 
-/// Extension to add user claims to request
-#[derive(Clone)]
+/// Extension to add user claims to request - can be used as an extractor
+#[derive(Clone, Debug)]
 pub struct AuthUser {
     pub user_id: uuid::Uuid,
     pub email: String,
@@ -37,5 +38,24 @@ impl From<Claims> for AuthUser {
             user_id: uuid::Uuid::parse_str(&claims.sub).unwrap_or_default(),
             email: claims.email,
         }
+    }
+}
+
+/// Implement FromRequestParts so AuthUser can be used as an extractor
+#[async_trait]
+impl FromRequestParts<Arc<AppState>> for AuthUser {
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        // Extract token from Authorization header
+        let token = extract_token(&parts.headers)?;
+        
+        // Validate token and get claims
+        let claims = validate_token(&token, &state.config.jwt_secret)?;
+        
+        Ok(AuthUser::from(claims))
     }
 }

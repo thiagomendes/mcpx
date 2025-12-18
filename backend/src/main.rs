@@ -23,11 +23,15 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() {
-    println!("=== mcpx backend starting ===");
+    use std::io::Write;
+    
+    // Use stderr for immediate output (no buffering)
+    eprintln!("=== mcpx backend starting ===");
+    std::io::stderr().flush().ok();
     
     // Load .env file
     dotenvy::dotenv().ok();
-    println!("1. Loaded .env");
+    eprintln!("1. Loaded .env");
 
     // Setup tracing
     tracing_subscriber::fmt()
@@ -97,6 +101,16 @@ async fn main() {
         .route("/api/servers/:name", put(routes::servers::update_server))
         .route("/api/servers/:name", delete(routes::servers::delete_server))
         .route("/api/servers/:name/test", post(routes::servers::test_server))
+        // Credentials routes
+        .route("/api/servers/:name/credentials", get(routes::credentials::list_credentials))
+        .route("/api/servers/:name/credentials", post(routes::credentials::create_credential))
+        .route("/api/servers/:name/credentials/:id", delete(routes::credentials::delete_credential))
+        // OAuth routes
+        .route("/api/servers/:name/oauth/config", post(routes::oauth::configure_oauth))
+        .route("/api/servers/:name/oauth/authorize", get(routes::oauth::start_oauth))
+        .route("/api/servers/:name/oauth/callback", get(routes::oauth::oauth_callback))
+        .route("/api/servers/:name/oauth/status", get(routes::oauth::oauth_status))
+        .route("/api/servers/:name/oauth", delete(routes::oauth::revoke_oauth))
         // Layers
         .layer(cors)
         .layer(TraceLayer::new_for_http())
