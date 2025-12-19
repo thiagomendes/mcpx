@@ -40,10 +40,11 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mcpx
       REDIS_URL: redis://redis:6379
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-not-configured}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-not-configured}
       JWT_SECRET: ${JWT_SECRET:-mcpx-dev-secret-change-in-production}
       FRONTEND_URL: http://localhost:3000
+      BASE_URL: http://localhost:8080
       BACKEND_PORT: 8080
       RUST_LOG: info
     depends_on:
@@ -62,7 +63,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      VITE_API_URL: http://backend:8080
+      # Use Docker internal hostname for container-to-container communication
+      VITE_API_URL: http://mcpx-backend:8080
     depends_on:
       - backend
     volumes:

@@ -38,6 +38,12 @@ const router = createRouter({
             component: () => import('@/views/dashboard/ServerDetails.vue'),
             meta: { requiresAuth: true },
         },
+        {
+            path: '/oauth/callback',
+            name: 'oauth-callback',
+            component: () => import('@/views/OAuthCallback.vue'),
+            // No auth required - popup handles its own flow
+        },
     ],
 })
 

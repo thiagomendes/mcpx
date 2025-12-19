@@ -9,10 +9,13 @@ COPY Cargo.toml Cargo.lock* ./
 # Create a dummy main.rs for dependency compilation
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build 2>/dev/null || true
-RUN rm -rf src
+RUN rm -rf src target/debug/mcpx-backend target/debug/deps/mcpx*
 
 # Copy actual source
 COPY . .
+
+# Force rebuild by touching source files
+RUN touch src/main.rs
 
 # Build in debug mode for faster compilation
 RUN cargo build

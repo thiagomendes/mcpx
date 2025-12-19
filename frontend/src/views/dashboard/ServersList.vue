@@ -40,8 +40,8 @@
         <div class="flex-1">
           <div class="flex items-center gap-3 mb-1">
             <span class="font-semibold">{{ server.name }}</span>
-            <span :class="server.enabled ? 'badge badge-success' : 'badge badge-warning'">
-              {{ server.enabled ? 'Active' : 'Disabled' }}
+            <span :class="statusBadgeClass(server.status)">
+              {{ statusLabel(server.status) }}
             </span>
           </div>
           <div class="text-gray-400 text-sm font-mono">{{ server.url }}</div>
@@ -84,6 +84,30 @@ const serversStore = useServersStore()
 onMounted(() => {
   serversStore.fetchServers()
 })
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'healthy':
+    case 'active': return 'Healthy'
+    case 'unhealthy': return 'Unhealthy'
+    case 'pending_auth': return 'Pending Auth'
+    case 'pending_health': return 'Waiting Check'
+    case 'disabled': return 'Disabled'
+    default: return status || 'Unknown'
+  }
+}
+
+function statusBadgeClass(status: string): string {
+  switch (status) {
+    case 'healthy':
+    case 'active': return 'badge badge-success'
+    case 'unhealthy': return 'badge badge-error'
+    case 'pending_auth': return 'badge badge-warning'
+    case 'pending_health': return 'badge badge-info'
+    case 'disabled': return 'badge badge-error'
+    default: return 'badge badge-warning'
+  }
+}
 
 function copyProxyUrl(url: string) {
   navigator.clipboard.writeText(url)

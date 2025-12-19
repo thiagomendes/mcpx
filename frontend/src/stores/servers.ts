@@ -8,9 +8,18 @@ export interface Server {
     url: string
     transport: string
     enabled: boolean
+    auth_type: string
+    status: 'healthy' | 'unhealthy' | 'pending_auth' | 'pending_health' | 'disabled'
+    last_health_check: string | null
+    health_error: string | null
     proxy_url: string
     created_at: string
     updated_at: string
+}
+
+export interface ToolInfo {
+    name: string
+    description: string | null
 }
 
 export interface TestResult {
@@ -18,6 +27,7 @@ export interface TestResult {
     message: string
     latency_ms: number
     status_code: number | null
+    tools: ToolInfo[] | null
 }
 
 export const useServersStore = defineStore('servers', () => {

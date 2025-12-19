@@ -77,7 +77,20 @@ async fn main() {
     println!("7. Migrations complete!");
 
     // Create app state
-    let state = Arc::new(AppState { config, db });
+    let state = Arc::new(AppState { config: config.clone(), db: db.clone() });
+
+    // Start background health check job
+    let health_check_interval: u64 = std::env::var("HEALTH_CHECK_INTERVAL_SECONDS")
+        .unwrap_or_else(|_| "300".to_string())
+        .parse()
+        .unwrap_or(300);
+    
+    services::health_check::start_health_check_job(
+        db,
+        config.encryption_key.clone(),
+        health_check_interval
+    ).await;
+    println!("8. Health check job started ({}s interval)", health_check_interval);
 
     // Build CORS layer
     let cors = CorsLayer::new()
@@ -105,10 +118,8 @@ async fn main() {
         .route("/api/servers/:name/credentials", get(routes::credentials::list_credentials))
         .route("/api/servers/:name/credentials", post(routes::credentials::create_credential))
         .route("/api/servers/:name/credentials/:id", delete(routes::credentials::delete_credential))
-        // OAuth routes
-        .route("/api/servers/:name/oauth/config", post(routes::oauth::configure_oauth))
-        .route("/api/servers/:name/oauth/authorize", get(routes::oauth::start_oauth))
-        .route("/api/servers/:name/oauth/callback", get(routes::oauth::oauth_callback))
+        // OAuth routes (frontend handles flow, backend stores tokens)
+        .route("/api/servers/:name/oauth/store-tokens", post(routes::oauth::store_oauth_tokens))
         .route("/api/servers/:name/oauth/status", get(routes::oauth::oauth_status))
         .route("/api/servers/:name/oauth", delete(routes::oauth::revoke_oauth))
         // Layers
