@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::AppState;
 use crate::routes::auth::{extract_token, validate_token, Claims};
 
+#[allow(dead_code)]
 pub async fn require_auth(
     State(state): State<Arc<AppState>>,
     request: Request<Body>,
@@ -23,6 +24,7 @@ pub async fn require_auth(
     
     Ok(next.run(request).await)
 }
+#[allow(dead_code)]
 
 #[derive(Clone, Debug)]
 pub struct AuthUser {

@@ -14,11 +14,7 @@ use crate::messages::error;
 
 const SQL_SELECT_SERVER: &str = "SELECT id, user_id, name, url, transport, auth_type, status FROM servers WHERE name = $1 AND user_id = $2";
 const SQL_SELECT_GOVERNANCE: &str = "SELECT allowed_tools, denied_tools, tool_prefix FROM governance_configs WHERE server_id = $1";
-const SQL_SELECT_CREDENTIAL: &str = "SELECT encrypted_value, credential_type FROM credentials WHERE server_id = $1 LIMIT 1";
-const SQL_SELECT_OAUTH_TOKEN: &str = "SELECT access_token_encrypted FROM oauth_tokens WHERE server_id = $1 ORDER BY created_at DESC LIMIT 1";
 
-const ERR_JSON: &str = "JSON error";
-const ERR_TOOL_NOT_ALLOWED: &str = "is not allowed by governance policy";
 
 pub async fn mcp_proxy(
     State(state): State<Arc<AppState>>,
@@ -124,6 +120,7 @@ impl GovernanceConfig {
         tool_name.strip_prefix(&prefix).unwrap_or(tool_name)
     }
 }
+#[allow(dead_code)]
 #[derive(sqlx::FromRow)]
 struct ServerRow {
     id: Uuid,
@@ -310,8 +307,8 @@ fn filter_sse_response(body: &str, governance: &GovernanceConfig) -> String {
     for line in body.lines() {
         if line.starts_with("event:") {
             current_event = line.to_string();
-        } else if line.starts_with("data:") {
-            current_data = line[5..].trim().to_string();
+        } else if let Some(data) = line.strip_prefix("data:") {
+            current_data = data.trim().to_string();
             
         
             if let Ok(mut json_response) = serde_json::from_str::<McpToolsListResponse>(&current_data) {
