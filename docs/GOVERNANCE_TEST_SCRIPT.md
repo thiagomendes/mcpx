@@ -51,10 +51,10 @@ ask_question
 
 ---
 
-## Caso 2: Whitelist (Permitir apenas algumas tools)
+## Caso 2: Allowlist (Permitir apenas algumas tools)
 
-### 2.1 Interface: Configurar whitelist
-1. Em **"Tool Governance"**, clique em **"Whitelist"**
+### 2.1 Interface: Configurar allowlist
+1. Em **"Tool Governance"**, clique em **"Allowlist"**
 2. Clique na tool **"ask_question"** (chip verde aparece)
 3. Clique em **"Save Rules"**
 4. Verifique: Mensagem "Governance rules saved!"
@@ -72,7 +72,7 @@ ask_question
 
 ---
 
-## Caso 3: Adicionar segunda tool à Whitelist
+## Caso 3: Adicionar segunda tool à Allowlist
 
 ### 3.1 Interface: Adicionar mais uma tool
 1. Clique na tool **"read_wiki_contents"** (outro chip verde aparece)
@@ -91,15 +91,15 @@ read_wiki_contents
 
 ---
 
-## Caso 4: Mudar para Blacklist
+## Caso 4: Mudar para Blocklist
 
-### 4.1 Interface: Trocar para blacklist
-1. Clique em **"Blacklist"** (vermelho)
+### 4.1 Interface: Trocar para blocklist
+1. Clique em **"Blocklist"** (vermelho)
 2. A lista de tools selecionadas será limpa
 3. Clique na tool **"read_wiki_structure"** (chip vermelho aparece)
 4. Clique em **"Save Rules"**
 
-### 4.2 Terminal: Verificar blacklist
+### 4.2 Terminal: Verificar blocklist
 ```bash
 tools_list
 ```
@@ -116,7 +116,7 @@ ask_question
 ## Caso 5: Adicionar Prefix Global
 
 ### 5.1 Interface: Configurar prefix
-1. Clique em **"All Tools"** (limpa blacklist)
+1. Clique em **"All Tools"** (limpa blocklist)
 2. No campo **"Tool Prefix"** (no topo), digite: `wiki`
 3. Clique em **"Save Rules"**
 
@@ -135,11 +135,11 @@ wiki_ask_question
 
 ---
 
-## Caso 6: Prefix + Whitelist (combinado)
+## Caso 6: Prefix + Allowlist (combinado)
 
-### 6.1 Interface: Combinar prefix com whitelist
+### 6.1 Interface: Combinar prefix com allowlist
 1. Mantenha o prefix `wiki`
-2. Clique em **"Whitelist"**
+2. Clique em **"Allowlist"**
 3. Clique na tool **"ask_question"**
 4. Clique em **"Save Rules"**
 
@@ -179,8 +179,8 @@ ask_question
 
 ## Caso 8: Testar tools/call com governance
 
-### 8.1 Interface: Configurar whitelist restritiva
-1. Clique em **"Whitelist"**
+### 8.1 Interface: Configurar allowlist restritiva
+1. Clique em **"Allowlist"**
 2. Selecione apenas **"ask_question"**
 3. Clique em **"Save Rules"**
 
@@ -223,10 +223,10 @@ Tool 'read_wiki_structure' is not allowed by governance policy
 | Caso | Config | Tools Esperadas |
 |------|--------|-----------------|
 | 1 | Nenhuma | 3 tools (original) |
-| 2 | Whitelist: ask_question | 1 tool |
-| 3 | Whitelist: +read_wiki_contents | 2 tools |
-| 4 | Blacklist: read_wiki_structure | 2 tools |
+| 2 | Allowlist: ask_question | 1 tool |
+| 3 | Allowlist: +read_wiki_contents | 2 tools |
+| 4 | Blocklist: read_wiki_structure | 2 tools |
 | 5 | Prefix: wiki | 3 tools (com prefix) |
-| 6 | Prefix + Whitelist | 1 tool (com prefix) |
+| 6 | Prefix + Allowlist | 1 tool (com prefix) |
 | 7 | Clear | 3 tools (original) |
-| 8 | Whitelist + tools/call | Permitir/Bloquear tool call |
+| 8 | Allowlist + tools/call | Permitir/Bloquear tool call |

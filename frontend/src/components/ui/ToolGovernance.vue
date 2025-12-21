@@ -34,35 +34,39 @@
       <label class="text-sm text-gray-400 mb-2 block">Tool Filter</label>
       <div class="flex gap-2">
         <button 
-          @click="mode = 'none'" 
+          @click="setMode('none')" 
           :class="['px-3 py-1.5 rounded-lg text-sm transition-colors', mode === 'none' ? 'bg-primary text-white' : 'bg-background-darker text-gray-400 hover:text-white']"
         >
           All Tools
         </button>
         <button 
-          @click="mode = 'whitelist'" 
-          :class="['px-3 py-1.5 rounded-lg text-sm transition-colors', mode === 'whitelist' ? 'bg-green-600 text-white' : 'bg-background-darker text-gray-400 hover:text-white']"
+          @click="setMode('allowlist')" 
+          :class="['px-3 py-1.5 rounded-lg text-sm transition-colors', mode === 'allowlist' ? 'bg-green-600 text-white' : 'bg-background-darker text-gray-400 hover:text-white']"
         >
-          Whitelist
+          Allowlist
         </button>
         <button 
-          @click="mode = 'blacklist'" 
-          :class="['px-3 py-1.5 rounded-lg text-sm transition-colors', mode === 'blacklist' ? 'bg-red-600 text-white' : 'bg-background-darker text-gray-400 hover:text-white']"
+          @click="setMode('blocklist')" 
+          :class="['px-3 py-1.5 rounded-lg text-sm transition-colors', mode === 'blocklist' ? 'bg-red-600 text-white' : 'bg-background-darker text-gray-400 hover:text-white']"
         >
-          Blacklist
+          Blocklist
         </button>
       </div>
+      <p class="text-gray-500 text-xs mt-2">
+        <span v-if="mode === 'none'">All tools from the server will be exposed.</span>
+        <span v-else-if="mode === 'allowlist'">Only selected tools will be exposed (others hidden).</span>
+        <span v-else>Selected tools will be hidden (others exposed).</span>
+      </p>
     </div>
 
-    <!-- Tools Selection (for whitelist/blacklist) -->
+    <!-- Tools Selection (for allowlist/blocklist) -->
     <div v-if="mode !== 'none'" class="mb-4">
       <label class="text-sm text-gray-400 mb-2 block">
-        {{ mode === 'whitelist' ? 'Allowed Tools (only these will be exposed)' : 'Blocked Tools (these will be hidden)' }}
+        {{ mode === 'allowlist' ? 'Select tools to allow:' : 'Select tools to block:' }}
       </label>
       
       <!-- Available Tools from Server (clickable chips) -->
       <div v-if="availableTools.length > 0" class="mb-3">
-        <p class="text-xs text-gray-500 mb-2">Click to {{ mode === 'whitelist' ? 'allow' : 'block' }}:</p>
         <div class="flex flex-wrap gap-2">
           <button 
             v-for="tool in availableTools" 
@@ -71,13 +75,16 @@
             :class="[
               'px-2 py-1 rounded text-sm transition-all',
               isToolSelected(tool.name) 
-                ? (mode === 'whitelist' ? 'bg-green-500/30 text-green-300 ring-1 ring-green-500' : 'bg-red-500/30 text-red-300 ring-1 ring-red-500')
+                ? (mode === 'allowlist' ? 'bg-green-500/30 text-green-300 ring-1 ring-green-500' : 'bg-red-500/30 text-red-300 ring-1 ring-red-500')
                 : 'bg-background-darker text-gray-400 hover:text-white'
             ]"
           >
             {{ tool.name }}
           </button>
         </div>
+      </div>
+      <div v-else class="mb-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+        <p class="text-yellow-400 text-sm">Run "Test Connection" above to load available tools.</p>
       </div>
       
       <!-- Manual Input -->
@@ -94,12 +101,12 @@
       
       <!-- Selected Tools -->
       <div v-if="tools.length > 0" class="mt-3">
-        <p class="text-xs text-gray-500 mb-2">{{ mode === 'whitelist' ? 'Allowed' : 'Blocked' }} tools:</p>
+        <p class="text-xs text-gray-500 mb-2">{{ mode === 'allowlist' ? 'Allowed' : 'Blocked' }} tools:</p>
         <div class="flex flex-wrap gap-2">
           <span 
             v-for="tool in tools" 
             :key="tool" 
-            :class="['px-2 py-1 rounded text-sm flex items-center gap-1', mode === 'whitelist' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400']"
+            :class="['px-2 py-1 rounded text-sm flex items-center gap-1', mode === 'allowlist' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400']"
           >
             {{ tool }}
             <button @click="removeTool(tool)" class="hover:text-white">
@@ -108,17 +115,16 @@
           </span>
         </div>
       </div>
-      <p v-else class="text-gray-500 text-sm">No tools selected</p>
     </div>
 
     <!-- Summary -->
     <div v-if="mode === 'none' && prefix" class="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
       <p class="text-blue-400 text-sm">All tools will be exposed with prefix "{{ prefix }}_"</p>
     </div>
-    <div v-else-if="mode === 'whitelist' && tools.length > 0" class="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+    <div v-else-if="mode === 'allowlist' && tools.length > 0" class="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
       <p class="text-green-400 text-sm">Only {{ tools.length }} tool(s) will be exposed{{ prefix ? ` with prefix "${prefix}_"` : '' }}</p>
     </div>
-    <div v-else-if="mode === 'blacklist' && tools.length > 0" class="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+    <div v-else-if="mode === 'blocklist' && tools.length > 0" class="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
       <p class="text-red-400 text-sm">{{ tools.length }} tool(s) will be hidden{{ prefix ? `, rest will have prefix "${prefix}_"` : '' }}</p>
     </div>
 
@@ -162,7 +168,7 @@ interface GovernanceConfig {
   tool_prefix: string
 }
 
-const mode = ref<'none' | 'whitelist' | 'blacklist'>('none')
+const mode = ref<'none' | 'allowlist' | 'blocklist'>('none')
 const tools = ref<string[]>([])
 const prefix = ref('')
 const newTool = ref('')
@@ -175,12 +181,13 @@ const hasConfig = computed(() => {
   return tools.value.length > 0 || prefix.value.length > 0
 })
 
-// Watch mode changes to clear tools when switching
-watch(mode, (newMode, oldMode) => {
-  if (newMode !== oldMode && newMode === 'none') {
-    tools.value = []
+// Function to change mode and clear tools
+function setMode(newMode: 'none' | 'allowlist' | 'blocklist') {
+  if (mode.value !== newMode) {
+    mode.value = newMode
+    tools.value = [] // Clear tools when switching modes
   }
-})
+}
 
 // Watch props for available tools
 watch(() => props.availableTools, (newTools) => {
@@ -201,10 +208,10 @@ async function loadConfig() {
     prefix.value = config.tool_prefix || ''
     
     if (config.allowed_tools.length > 0) {
-      mode.value = 'whitelist'
+      mode.value = 'allowlist'
       tools.value = config.allowed_tools
     } else if (config.denied_tools.length > 0) {
-      mode.value = 'blacklist'
+      mode.value = 'blocklist'
       tools.value = config.denied_tools
     } else {
       mode.value = 'none'
@@ -248,8 +255,8 @@ async function handleSave() {
   
   try {
     const payload = {
-      allowed_tools: mode.value === 'whitelist' ? tools.value : [],
-      denied_tools: mode.value === 'blacklist' ? tools.value : [],
+      allowed_tools: mode.value === 'allowlist' ? tools.value : [],
+      denied_tools: mode.value === 'blocklist' ? tools.value : [],
       tool_prefix: prefix.value.trim()
     }
     
