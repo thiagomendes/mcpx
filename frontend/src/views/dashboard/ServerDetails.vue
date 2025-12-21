@@ -135,6 +135,9 @@
         </div>
       </div>
 
+      <!-- Tool Governance -->
+      <ToolGovernance :server-name="server.name" />
+
       <!-- Server Info -->
       <div class="card">
         <h3 class="font-semibold mb-3 flex items-center gap-2">
@@ -173,6 +176,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
+import ToolGovernance from '@/components/ui/ToolGovernance.vue'
 import { useServersStore, type Server, type TestResult } from '@/stores/servers'
 import api from '@/api/client'
 import { startOAuthFlow } from '@/lib/mcp'
