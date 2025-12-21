@@ -11,7 +11,7 @@ pub struct Server {
     pub url: String,
     pub transport: String,
     pub enabled: bool,
-    pub status: Option<String>, // pending_auth, pending_health, healthy, unhealthy
+    pub status: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub auth_type: Option<String>,
     pub oauth_client_id: Option<String>,
@@ -19,7 +19,7 @@ pub struct Server {
     pub oauth_token_url: Option<String>,
     pub oauth_scopes: Option<String>,
     pub oauth_use_pkce: Option<bool>,
-    // Health check fields
+
     pub last_health_check: Option<DateTime<Utc>>,
     pub health_error: Option<String>,
     pub health_check_interval_seconds: Option<i32>,
@@ -35,10 +35,10 @@ pub struct CreateServerRequest {
     pub transport: String,
     #[serde(default = "default_auth_type")]
     pub auth_type: String,
-    // Credential values (will be encrypted and stored separately)
+
     pub api_key: Option<String>,
     pub bearer_token: Option<String>,
-    // OAuth config
+
     pub oauth_authorization_url: Option<String>,
     pub oauth_token_url: Option<String>,
     pub oauth_client_id: Option<String>,
@@ -71,7 +71,7 @@ pub struct ServerResponse {
     pub transport: String,
     pub enabled: bool,
     pub auth_type: String,
-    pub status: String, // pending_auth, pending_health, healthy, unhealthy
+    pub status: String,
     pub last_health_check: Option<DateTime<Utc>>,
     pub health_error: Option<String>,
     pub proxy_url: String,

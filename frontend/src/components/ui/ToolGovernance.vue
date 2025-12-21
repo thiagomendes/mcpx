@@ -221,12 +221,10 @@ const summaryTextClass = computed(() => {
   return filterMode.value === 'allowlist' ? 'text-green-400 text-sm' : 'text-red-400 text-sm'
 })
 
-// Clear selected tools when changing mode
 watch(filterMode, () => {
   selectedTools.value = []
 })
 
-// Watch props for available tools
 watch(() => props.availableTools, (newTools) => {
   if (newTools) availableTools.value = newTools
 }, { immediate: true })

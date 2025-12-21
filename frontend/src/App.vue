@@ -13,7 +13,6 @@ const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
-// Watch for token in URL (from OAuth callback)
 watch(
   () => route.query.token,
   async (token) => {

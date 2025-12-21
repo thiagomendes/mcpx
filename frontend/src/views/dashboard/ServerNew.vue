@@ -369,7 +369,7 @@ async function handleTest() {
   testResult.value = null
   
   try {
-    // Create a temporary test by calling the URL directly
+
     const response = await fetch(form.url, {
       method: 'POST',
       headers: {

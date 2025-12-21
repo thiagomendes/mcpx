@@ -2,23 +2,23 @@ use std::env;
 
 #[derive(Clone, Debug)]
 pub struct Config {
-    // Database
+
     pub database_url: String,
     
-    // Redis
+
     pub redis_url: String,
     
-    // Google OAuth
+
     pub google_client_id: String,
     pub google_client_secret: String,
     
-    // JWT
+
     pub jwt_secret: String,
     
-    // Encryption for credentials
+
     pub encryption_key: String,
     
-    // URLs
+
     pub frontend_url: String,
     pub base_url: String,
     pub backend_port: u16,

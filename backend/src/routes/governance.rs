@@ -9,10 +9,21 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::routes::auth::{extract_token, validate_token};
+use crate::messages::error;
 
-// ============================================================================
-// Types
-// ============================================================================
+const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND user_id = $2";
+const SQL_DELETE_GOVERNANCE: &str = "DELETE FROM governance_configs WHERE server_id = $1";
+const SQL_SELECT_GOVERNANCE: &str = "SELECT * FROM governance_configs WHERE server_id = $1";
+const SQL_UPSERT_GOVERNANCE: &str = r#"
+    INSERT INTO governance_configs (server_id, allowed_tools, denied_tools, tool_prefix)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (server_id) DO UPDATE SET
+        allowed_tools = EXCLUDED.allowed_tools,
+        denied_tools = EXCLUDED.denied_tools,
+        tool_prefix = EXCLUDED.tool_prefix,
+        updated_at = NOW()
+    RETURNING *
+"#;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct GovernanceConfig {
@@ -45,10 +56,6 @@ pub struct CreateGovernanceRequest {
     pub tool_prefix: String,
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
 async fn get_user_id(
     headers: &axum::http::HeaderMap,
     state: &AppState,
@@ -56,7 +63,7 @@ async fn get_user_id(
     let token = extract_token(headers)?;
     let claims = validate_token(&token, &state.config.jwt_secret)?;
     Uuid::parse_str(&claims.sub)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid token".to_string()))
+        .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))
 }
 
 async fn get_server_id(
@@ -64,17 +71,15 @@ async fn get_server_id(
     user_id: Uuid,
     server_name: &str,
 ) -> Result<Uuid, (StatusCode, String)> {
-    let row: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM servers WHERE user_id = $1 AND name = $2"
-    )
-    .bind(user_id)
-    .bind(server_name)
-    .fetch_optional(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
-    
+    let row: Option<(Uuid,)> = sqlx::query_as(SQL_SELECT_SERVER_ID)
+        .bind(server_name)
+        .bind(user_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
     row.map(|(id,)| id)
-        .ok_or((StatusCode::NOT_FOUND, "Server not found".to_string()))
+        .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))
 }
 
 fn json_to_vec(value: &serde_json::Value) -> Vec<String> {
@@ -83,11 +88,6 @@ fn json_to_vec(value: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-// ============================================================================
-// Handlers
-// ============================================================================
-
-/// GET /api/servers/:name/governance
 pub async fn get_governance(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -95,15 +95,13 @@ pub async fn get_governance(
 ) -> Result<Json<GovernanceResponse>, (StatusCode, String)> {
     let user_id = get_user_id(&headers, &state).await?;
     let server_id = get_server_id(&state, user_id, &name).await?;
-    
-    let config: Option<GovernanceConfig> = sqlx::query_as(
-        "SELECT * FROM governance_configs WHERE server_id = $1"
-    )
+
+    let config: Option<GovernanceConfig> = sqlx::query_as(SQL_SELECT_GOVERNANCE)
     .bind(server_id)
     .fetch_optional(&state.db.pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
-    
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
     match config {
         Some(c) => Ok(Json(GovernanceResponse {
             server_name: name,
@@ -124,7 +122,6 @@ pub async fn get_governance(
     }
 }
 
-/// POST /api/servers/:name/governance
 pub async fn set_governance(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -133,51 +130,31 @@ pub async fn set_governance(
 ) -> Result<(StatusCode, Json<GovernanceResponse>), (StatusCode, String)> {
     let user_id = get_user_id(&headers, &state).await?;
     let server_id = get_server_id(&state, user_id, &name).await?;
-    
-    // Validate: cannot have both whitelist and blacklist
+
     if !payload.allowed_tools.is_empty() && !payload.denied_tools.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Cannot specify both allowed_tools and denied_tools (use one or the other)".to_string(),
-        ));
+        return Err((StatusCode::BAD_REQUEST, error::MUTUALLY_EXCLUSIVE.to_string()));
     }
-    
-    // Validate: tool_prefix must be alphanumeric + underscore
+
     if !payload.tool_prefix.is_empty() {
         if !payload.tool_prefix.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                "Invalid tool_prefix: must be alphanumeric with underscores (no spaces)".to_string(),
-            ));
+            return Err((StatusCode::BAD_REQUEST, error::INVALID_PREFIX_FORMAT.to_string()));
         }
     }
-    
+
     let allowed_json = serde_json::to_value(&payload.allowed_tools)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;
     let denied_json = serde_json::to_value(&payload.denied_tools)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;
-    
-    // Upsert governance config
-    let config: GovernanceConfig = sqlx::query_as(
-        r#"
-        INSERT INTO governance_configs (server_id, allowed_tools, denied_tools, tool_prefix)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (server_id) DO UPDATE SET
-            allowed_tools = EXCLUDED.allowed_tools,
-            denied_tools = EXCLUDED.denied_tools,
-            tool_prefix = EXCLUDED.tool_prefix,
-            updated_at = NOW()
-        RETURNING *
-        "#
-    )
+
+    let config: GovernanceConfig = sqlx::query_as(SQL_UPSERT_GOVERNANCE)
     .bind(server_id)
     .bind(&allowed_json)
     .bind(&denied_json)
     .bind(&payload.tool_prefix)
     .fetch_one(&state.db.pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
-    
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
     Ok((StatusCode::OK, Json(GovernanceResponse {
         server_name: name,
         allowed_tools: json_to_vec(&config.allowed_tools),
@@ -188,7 +165,6 @@ pub async fn set_governance(
     })))
 }
 
-/// DELETE /api/servers/:name/governance
 pub async fn delete_governance(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -196,12 +172,12 @@ pub async fn delete_governance(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let user_id = get_user_id(&headers, &state).await?;
     let server_id = get_server_id(&state, user_id, &name).await?;
-    
-    sqlx::query("DELETE FROM governance_configs WHERE server_id = $1")
+
+    sqlx::query(SQL_DELETE_GOVERNANCE)
         .bind(server_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
-    
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
     Ok(StatusCode::NO_CONTENT)
 }

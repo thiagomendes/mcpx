@@ -301,7 +301,7 @@ onMounted(async () => {
       const response = await api.get(`/servers/${server.value.name}/oauth/status`)
       oauthStatus.value = response.data
       
-      // Auto-test if OAuth is connected
+  
       if (oauthStatus.value?.connected) {
         await handleTest()
       }
@@ -309,18 +309,18 @@ onMounted(async () => {
       oauthStatus.value = { connected: false, expires_at: null }
     }
   } else {
-    // Non-OAuth servers: auto-test on load
+
     await handleTest()
   }
   
   // Check for OAuth callback success
   if (route.query.oauth === 'success') {
     oauthStatus.value = { connected: true, expires_at: null }
-    // Re-fetch to get real expiry
+
     if (server.value) {
       const response = await api.get(`/servers/${server.value.name}/oauth/status`)
       oauthStatus.value = response.data
-      // Auto-test after OAuth success
+  
       await handleTest()
     }
   }
@@ -343,11 +343,11 @@ async function handleAuthorize() {
   oauthError.value = null
   
   try {
-    // Use SDK OAuth flow (runs entirely in frontend)
+
     const result = await startOAuthFlow(server.value.name, server.value.url)
     
     if (result.success) {
-      // OAuth flow started - poll for completion like in the modal
+  
       const maxAttempts = 60 // 60 seconds max wait
       let attempts = 0
       let oauthComplete = false
@@ -363,16 +363,16 @@ async function handleAuthorize() {
             oauthComplete = true
           }
         } catch {
-          // Keep polling
+      
         }
       }
       
       if (oauthComplete) {
-        // Re-fetch server to update status
+    
         await serversStore.fetchServers()
         server.value = serversStore.getServerByName(server.value!.name) || null
         
-        // Auto-test connection after OAuth success
+    
         await handleTest()
       } else {
         oauthError.value = 'OAuth flow timeout - popup may have been closed'

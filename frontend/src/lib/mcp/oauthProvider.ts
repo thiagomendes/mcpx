@@ -17,7 +17,6 @@ export interface McpxOAuthConfig {
   backendUrl: string;
 }
 
-// Prefix for our custom state to identify it in callback
 const STATE_PREFIX = 'mcpx:';
 
 /**
@@ -40,7 +39,7 @@ export class McpxOAuthProvider implements OAuthClientProvider {
   }
 
   get redirectUrl(): string | URL {
-    // Use current origin for callback - will be handled by callback page
+
     return `${window.location.origin}/oauth/callback`;
   }
 
@@ -59,7 +58,7 @@ export class McpxOAuthProvider implements OAuthClientProvider {
    * This allows callback page to identify which server initiated the flow
    */
   state(): string {
-    // Format: mcpx:<serverName>:<random>
+
     const random = crypto.randomUUID();
     return `${STATE_PREFIX}${this.config.serverName}:${random}`;
   }
@@ -70,7 +69,7 @@ export class McpxOAuthProvider implements OAuthClientProvider {
 
   saveClientInformation(info: OAuthClientInformationMixed): void {
     this._clientInformation = info;
-    // Temporarily persist for callback - will be cleared after flow
+
     sessionStorage.setItem(`mcpx_oauth_client_${this.config.serverName}`, JSON.stringify(info));
   }
 
@@ -81,17 +80,17 @@ export class McpxOAuthProvider implements OAuthClientProvider {
   async saveTokens(tokens: OAuthTokens): Promise<void> {
     this._tokens = tokens;
 
-    // Send tokens to backend for secure storage
+
     if (this._onComplete) {
       await this._onComplete(tokens);
     }
 
-    // Immediately cleanup browser storage after sending to backend
+
     this.cleanup();
   }
 
   redirectToAuthorization(authorizationUrl: URL): void {
-    // Store minimal state in sessionStorage before redirect (temporary only)
+
     sessionStorage.setItem(`mcpx_oauth_state_${this.config.serverName}`, JSON.stringify({
       serverUrl: this.config.serverUrl,
       serverName: this.config.serverName,
@@ -99,7 +98,7 @@ export class McpxOAuthProvider implements OAuthClientProvider {
       codeVerifier: this._codeVerifier
     }));
 
-    // Open in popup for better UX
+
     const width = 600;
     const height = 700;
     const left = window.screenX + (window.innerWidth - width) / 2;
@@ -114,7 +113,7 @@ export class McpxOAuthProvider implements OAuthClientProvider {
 
   saveCodeVerifier(codeVerifier: string): void {
     this._codeVerifier = codeVerifier;
-    // Temporarily store for callback - will be cleared after flow
+
     sessionStorage.setItem(`mcpx_oauth_verifier_${this.config.serverName}`, codeVerifier);
   }
 

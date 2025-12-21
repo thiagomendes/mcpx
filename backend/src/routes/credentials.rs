@@ -10,13 +10,19 @@ use uuid::Uuid;
 
 use crate::middleware::auth::AuthUser;
 use crate::services::crypto;
+use crate::messages::error;
 use crate::AppState;
 
-// --- DTOs ---
+const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND user_id = $2";
+const SQL_SELECT_CREDENTIALS: &str = "SELECT id, server_id, credential_type, encrypted_value, name, created_at FROM credentials WHERE server_id = $1";
+const SQL_INSERT_CREDENTIAL: &str = "INSERT INTO credentials (server_id, credential_type, encrypted_value, name) VALUES ($1, $2, $3, $4) RETURNING id, server_id, credential_type, encrypted_value, name, created_at";
+const SQL_DELETE_CREDENTIAL: &str = "DELETE FROM credentials WHERE id = $1 AND server_id = $2";
+const SQL_COUNT_CREDENTIALS: &str = "SELECT COUNT(*) FROM credentials WHERE server_id = $1";
+const SQL_UPDATE_AUTH_TYPE: &str = "UPDATE servers SET auth_type = $1 WHERE id = $2";
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCredentialRequest {
-    pub credential_type: String,  // "api_key" or "bearer"
+    pub credential_type: String,
     pub value: String,
     pub name: Option<String>,
 }
@@ -41,33 +47,24 @@ struct Credential {
     created_at: chrono::DateTime<chrono::Utc>,
 }
 
-// --- Handlers ---
-
-/// List credentials for a server (masked values)
 pub async fn list_credentials(
     State(state): State<Arc<AppState>>,
     Path(server_name): Path<String>,
     auth_user: AuthUser,
 ) -> Result<Json<Vec<CredentialResponse>>, (StatusCode, String)> {
-    // Get server and verify ownership
-    let server = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM servers WHERE name = $1 AND user_id = $2"
-    )
-    .bind(&server_name)
-    .bind(&auth_user.user_id)
-    .fetch_optional(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Server not found".to_string()))?;
+    let server = sqlx::query_scalar::<_, Uuid>(SQL_SELECT_SERVER_ID)
+        .bind(&server_name)
+        .bind(&auth_user.user_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+        .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
-    let credentials = sqlx::query_as::<_, Credential>(
-        "SELECT id, server_id, credential_type, encrypted_value, name, created_at 
-         FROM credentials WHERE server_id = $1"
-    )
-    .bind(&server)
-    .fetch_all(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let credentials = sqlx::query_as::<_, Credential>(SQL_SELECT_CREDENTIALS)
+        .bind(&server)
+        .fetch_all(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
     let responses: Vec<CredentialResponse> = credentials
         .into_iter()
@@ -84,61 +81,49 @@ pub async fn list_credentials(
     Ok(Json(responses))
 }
 
-/// Add a credential to a server
 pub async fn create_credential(
     State(state): State<Arc<AppState>>,
     Path(server_name): Path<String>,
     auth_user: AuthUser,
     Json(req): Json<CreateCredentialRequest>,
 ) -> Result<Json<CredentialResponse>, (StatusCode, String)> {
-    // Validate credential type
     if req.credential_type != "api_key" && req.credential_type != "bearer" {
-        return Err((StatusCode::BAD_REQUEST, "Invalid credential type. Use 'api_key' or 'bearer'".to_string()));
+        return Err((StatusCode::BAD_REQUEST, error::INVALID_CREDENTIAL_TYPE.to_string()));
     }
 
-    // Get server and verify ownership
-    let server_id = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM servers WHERE name = $1 AND user_id = $2"
-    )
-    .bind(&server_name)
-    .bind(&auth_user.user_id)
-    .fetch_optional(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Server not found".to_string()))?;
+    let server_id = sqlx::query_scalar::<_, Uuid>(SQL_SELECT_SERVER_ID)
+        .bind(&server_name)
+        .bind(&auth_user.user_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+        .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
-    // Encrypt the credential value
     let key = crypto::derive_key(&state.config.encryption_key);
     let encrypted = crypto::encrypt(&req.value, &key)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    // Insert credential
-    let credential = sqlx::query_as::<_, Credential>(
-        "INSERT INTO credentials (server_id, credential_type, encrypted_value, name)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, server_id, credential_type, encrypted_value, name, created_at"
-    )
-    .bind(&server_id)
-    .bind(&req.credential_type)
-    .bind(&encrypted)
-    .bind(&req.name)
-    .fetch_one(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let credential = sqlx::query_as::<_, Credential>(SQL_INSERT_CREDENTIAL)
+        .bind(&server_id)
+        .bind(&req.credential_type)
+        .bind(&encrypted)
+        .bind(&req.name)
+        .fetch_one(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
-    // Update server auth_type
     let auth_type = match req.credential_type.as_str() {
         "api_key" => "api_key",
         "bearer" => "bearer",
         _ => "none",
     };
-    
-    sqlx::query("UPDATE servers SET auth_type = $1 WHERE id = $2")
+
+    sqlx::query(SQL_UPDATE_AUTH_TYPE)
         .bind(auth_type)
         .bind(&server_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
     Ok(Json(CredentialResponse {
         id: credential.id,
@@ -150,56 +135,47 @@ pub async fn create_credential(
     }))
 }
 
-/// Delete a credential
 pub async fn delete_credential(
     State(state): State<Arc<AppState>>,
     Path((server_name, credential_id)): Path<(String, Uuid)>,
     auth_user: AuthUser,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    // Get server and verify ownership
-    let server_id = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM servers WHERE name = $1 AND user_id = $2"
-    )
-    .bind(&server_name)
-    .bind(&auth_user.user_id)
-    .fetch_optional(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, "Server not found".to_string()))?;
+    let server_id = sqlx::query_scalar::<_, Uuid>(SQL_SELECT_SERVER_ID)
+        .bind(&server_name)
+        .bind(&auth_user.user_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+        .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
-    // Delete credential
-    let result = sqlx::query(
-        "DELETE FROM credentials WHERE id = $1 AND server_id = $2"
-    )
-    .bind(&credential_id)
-    .bind(&server_id)
-    .execute(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let result = sqlx::query(SQL_DELETE_CREDENTIAL)
+        .bind(&credential_id)
+        .bind(&server_id)
+        .execute(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, "Credential not found".to_string()));
+        return Err((StatusCode::NOT_FOUND, error::CREDENTIAL_NOT_FOUND.to_string()));
     }
 
-    // Check if any credentials remain, if not reset auth_type
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM credentials WHERE server_id = $1")
+    let count: i64 = sqlx::query_scalar(SQL_COUNT_CREDENTIALS)
         .bind(&server_id)
         .fetch_one(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
     if count == 0 {
-        sqlx::query("UPDATE servers SET auth_type = 'none' WHERE id = $1")
+        sqlx::query(SQL_UPDATE_AUTH_TYPE)
+            .bind("none")
             .bind(&server_id)
             .execute(&state.db.pool)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
     }
 
     Ok(StatusCode::NO_CONTENT)
 }
-
-// --- Helpers ---
 
 fn mask_value(value: &str) -> String {
     if value.len() <= 8 {

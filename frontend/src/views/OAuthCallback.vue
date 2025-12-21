@@ -69,7 +69,7 @@ onMounted(async () => {
     
     if (result.success) {
       success.value = true
-      // Close window after short delay
+  
       setTimeout(() => {
         window.close()
       }, 2000)

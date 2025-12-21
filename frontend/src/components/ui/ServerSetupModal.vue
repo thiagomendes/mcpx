@@ -136,7 +136,6 @@ const emit = defineEmits<{
 
 const router = useRouter()
 
-// State
 const currentStep = ref(0)
 const authStarted = ref(false)
 const toolsLoaded = ref(false)
@@ -146,7 +145,6 @@ const error = ref<string | null>(null)
 const createdServerName = ref('')
 const skippedAuth = ref(false)
 
-// Computed
 const requiresAuth = computed(() => props.authType === 'oauth_auto')
 const isComplete = computed(() => toolsLoaded.value && !error.value && !skippedAuth.value)
 
@@ -159,7 +157,6 @@ function stepClass(step: number) {
   return 'step-pending'
 }
 
-// Watch for modal open to start process
 watch(() => props.isOpen, (open) => {
   if (open) {
     startSetup()
@@ -187,12 +184,12 @@ async function startSetup() {
   resetState()
   
   try {
-    // Step 1: Create server
+
     currentStep.value = 1
     const response = await api.post('/servers', props.formData)
     createdServerName.value = response.data.name
     
-    // Step 2: Test connectivity
+
     currentStep.value = 2
     await testConnectivity()
     
@@ -207,7 +204,7 @@ async function testConnectivity() {
     const testResult = await api.post(`/servers/${createdServerName.value}/test`)
     
     if (testResult.data.success) {
-      // Tools loaded successfully
+  
       toolsLoaded.value = true
       toolsCount.value = testResult.data.tools?.length || 0
       currentStep.value = requiresAuth.value ? 5 : 4
@@ -216,7 +213,7 @@ async function testConnectivity() {
       const needsAuth = msg.includes('401') || msg.includes('AuthRequired') || msg.includes('oauth')
       
       if (requiresAuth.value && needsAuth) {
-        // Needs OAuth - clear any error and go to auth step
+    
         error.value = null
         currentStep.value = 3
       } else {
@@ -225,7 +222,7 @@ async function testConnectivity() {
     }
   } catch (e: unknown) {
     if (requiresAuth.value) {
-      // Assume needs auth on error for oauth servers - clear error
+  
       error.value = null
       currentStep.value = 3
     } else {
@@ -239,16 +236,16 @@ async function startAuth() {
   authStarted.value = true
   
   try {
-    // Get server details for OAuth
+
     const serverResponse = await api.get(`/servers/${createdServerName.value}`)
     const server = serverResponse.data
     
-    // Start OAuth flow using existing lib/mcp service
+
     const result = await startOAuthFlow(createdServerName.value, server.url)
     
     if (result.success) {
-      // OAuth flow started - now poll for completion
-      // The SDK returns success on REDIRECT, so we need to wait for the callback
+  
+  
       const maxAttempts = 60 // 60 seconds max wait
       let attempts = 0
       let oauthComplete = false
@@ -263,7 +260,7 @@ async function startAuth() {
             oauthComplete = true
           }
         } catch {
-          // Status check failed, keep waiting
+      
         }
       }
       
@@ -273,7 +270,7 @@ async function startAuth() {
         return
       }
       
-      // OAuth complete - test connection with token
+  
       currentStep.value = requiresAuth.value ? 4 : 3
       loadingTools.value = true
       

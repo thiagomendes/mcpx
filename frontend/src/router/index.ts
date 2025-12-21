@@ -42,12 +42,11 @@ const router = createRouter({
             path: '/oauth/callback',
             name: 'oauth-callback',
             component: () => import('@/views/OAuthCallback.vue'),
-            // No auth required - popup handles its own flow
+        
         },
     ],
 })
 
-// Navigation guard for protected routes
 router.beforeEach((to, from, next) => {
     const authStore = useAuthStore()
 
