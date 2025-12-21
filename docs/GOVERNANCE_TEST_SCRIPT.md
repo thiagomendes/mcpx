@@ -10,21 +10,114 @@ Este roteiro alterna entre **Terminal (curl+jq)** e **Interface Web** para valid
 
 ```bash
 # Cole isso no terminal uma vez
+USER_ID="2d150658-73c1-418d-af2f-a2fbbfbe728b"
+SERVER="deepwiki"
+BASE="http://localhost:8080"
+
+# Função interativa: lista tools e permite escolher qual consumir
+mcp_test() {
+  echo "🔄 Iniciando sessão MCP..."
+  
+  SESSION=$(curl -s -i -X POST "$BASE/mcp/$USER_ID/$SERVER" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json, text/event-stream" \
+    -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}' \
+    | grep "^mcp-session-id:" | cut -d' ' -f2 | tr -d '\r\n')
+  
+  if [ -z "$SESSION" ]; then
+    echo "❌ Erro: Não foi possível obter Session ID"
+    return 1
+  fi
+  
+  echo "✅ Session: $SESSION"
+  echo ""
+  echo "📋 Buscando tools disponíveis..."
+  
+  # Buscar lista de tools
+  TOOLS_JSON=$(curl -s -X POST "$BASE/mcp/$USER_ID/$SERVER" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json, text/event-stream" \
+    -H "Mcp-Session-Id: $SESSION" \
+    -d '{"jsonrpc":"2.0","method":"tools/list","id":2}' \
+    | grep "^data:" | sed 's/data: //' | head -1)
+  
+  # Extrair nomes das tools
+  TOOLS=($(echo "$TOOLS_JSON" | jq -r '.result.tools[].name' 2>/dev/null))
+  
+  if [ ${#TOOLS[@]} -eq 0 ]; then
+    echo "❌ Nenhuma tool encontrada"
+    return 1
+  fi
+  
+  echo ""
+  echo "🔧 Tools disponíveis:"
+  echo "   0) Sair (não consumir nenhuma)"
+  for i in "${!TOOLS[@]}"; do
+    echo "   $((i+1))) ${TOOLS[$i]}"
+  done
+  
+  echo ""
+  read -p "Escolha uma tool (0-${#TOOLS[@]}): " CHOICE
+  
+  if [ "$CHOICE" = "0" ] || [ -z "$CHOICE" ]; then
+    echo "👋 Saindo..."
+    return 0
+  fi
+  
+  # Validar escolha
+  if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 1 ] || [ "$CHOICE" -gt ${#TOOLS[@]} ]; then
+    echo "❌ Escolha inválida"
+    return 1
+  fi
+  
+  SELECTED_TOOL="${TOOLS[$((CHOICE-1))]}"
+  echo ""
+  echo "🎯 Tool selecionada: $SELECTED_TOOL"
+  echo ""
+  
+  # Pedir argumentos baseado na tool
+  if [[ "$SELECTED_TOOL" == *"ask_question"* ]]; then
+    read -p "Repo (ex: facebook/react): " REPO
+    read -p "Pergunta: " QUESTION
+    ARGS="{\"repoName\":\"$REPO\",\"question\":\"$QUESTION\"}"
+  elif [[ "$SELECTED_TOOL" == *"read_wiki"* ]]; then
+    read -p "Repo (ex: facebook/react): " REPO
+    ARGS="{\"repoName\":\"$REPO\"}"
+  else
+    read -p "Argumentos JSON: " ARGS
+    ARGS="${ARGS:-{}}"
+  fi
+  
+  echo ""
+  echo "🚀 Chamando tool..."
+  echo ""
+  
+  curl -s -X POST "$BASE/mcp/$USER_ID/$SERVER" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json, text/event-stream" \
+    -H "Mcp-Session-Id: $SESSION" \
+    -d "{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"name\":\"$SELECTED_TOOL\",\"arguments\":$ARGS},\"id\":3}" \
+    | grep "^data:" | sed 's/data: //' | jq '.' 2>/dev/null || echo "(resposta raw)"
+}
+
+# Função simples: só lista tools
 tools_list() {
-  SESSION=$(curl -s -i -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/deepwiki" \
+  SESSION=$(curl -s -i -X POST "$BASE/mcp/$USER_ID/$SERVER" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json, text/event-stream" \
     -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}' \
     | grep "^mcp-session-id:" | cut -d' ' -f2 | tr -d '\r\n')
   
   echo "Tools disponíveis:"
-  curl -s -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/deepwiki" \
+  curl -s -X POST "$BASE/mcp/$USER_ID/$SERVER" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json, text/event-stream" \
     -H "Mcp-Session-Id: $SESSION" \
     -d '{"jsonrpc":"2.0","method":"tools/list","id":2}' \
-    | grep "^data:" | sed 's/data: //' | jq -r '.result.tools[].name' 2>/dev/null || echo "(aguardando resposta...)"
+    | grep "^data:" | sed 's/data: //' | jq -r '.result.tools[].name' 2>/dev/null
 }
+
+echo "✅ Funções carregadas: tools_list, mcp_test"
 ```
 
 ---
