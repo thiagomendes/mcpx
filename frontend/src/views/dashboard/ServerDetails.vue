@@ -136,7 +136,7 @@
       </div>
 
       <!-- Tool Governance -->
-      <ToolGovernance :server-name="server.name" />
+      <ToolGovernance :server-name="server.name" :available-tools="testResult?.tools || []" />
 
       <!-- Server Info -->
       <div class="card">

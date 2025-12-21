@@ -13,10 +13,25 @@
         Clear Rules
       </button>
     </div>
+
+    <!-- Prefix Section (applies to ALL tools) -->
+    <div class="mb-6 pb-4 border-b border-gray-700">
+      <label class="text-sm text-gray-400 mb-2 block">Tool Prefix (applies to all tools)</label>
+      <div class="flex gap-2 items-center">
+        <input 
+          v-model="prefix" 
+          type="text" 
+          placeholder="e.g. github"
+          class="flex-1 bg-background-darker border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-primary focus:outline-none"
+        />
+        <span v-if="prefix" class="text-gray-500 text-sm">→ {{ prefix }}_tool_name</span>
+      </div>
+      <p class="text-gray-500 text-xs mt-1">Alphanumeric + underscore only. Leave empty for no prefix.</p>
+    </div>
     
-    <!-- Mode Selection -->
+    <!-- Filter Mode Selection -->
     <div class="mb-4">
-      <label class="text-sm text-gray-400 mb-2 block">Filter Mode</label>
+      <label class="text-sm text-gray-400 mb-2 block">Tool Filter</label>
       <div class="flex gap-2">
         <button 
           @click="mode = 'none'" 
@@ -39,46 +54,72 @@
       </div>
     </div>
 
-    <!-- Tools Input (for whitelist/blacklist) -->
+    <!-- Tools Selection (for whitelist/blacklist) -->
     <div v-if="mode !== 'none'" class="mb-4">
       <label class="text-sm text-gray-400 mb-2 block">
         {{ mode === 'whitelist' ? 'Allowed Tools (only these will be exposed)' : 'Blocked Tools (these will be hidden)' }}
       </label>
+      
+      <!-- Available Tools from Server (clickable chips) -->
+      <div v-if="availableTools.length > 0" class="mb-3">
+        <p class="text-xs text-gray-500 mb-2">Click to {{ mode === 'whitelist' ? 'allow' : 'block' }}:</p>
+        <div class="flex flex-wrap gap-2">
+          <button 
+            v-for="tool in availableTools" 
+            :key="tool.name"
+            @click="toggleTool(tool.name)"
+            :class="[
+              'px-2 py-1 rounded text-sm transition-all',
+              isToolSelected(tool.name) 
+                ? (mode === 'whitelist' ? 'bg-green-500/30 text-green-300 ring-1 ring-green-500' : 'bg-red-500/30 text-red-300 ring-1 ring-red-500')
+                : 'bg-background-darker text-gray-400 hover:text-white'
+            ]"
+          >
+            {{ tool.name }}
+          </button>
+        </div>
+      </div>
+      
+      <!-- Manual Input -->
       <div class="flex gap-2 mb-2">
         <input 
           v-model="newTool" 
           @keyup.enter="addTool"
           type="text" 
-          placeholder="Tool name (e.g. ask_question)"
+          placeholder="Or type tool name manually"
           class="flex-1 bg-background-darker border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-primary focus:outline-none"
         />
         <button @click="addTool" class="btn btn-secondary text-sm">Add</button>
       </div>
-      <div v-if="tools.length > 0" class="flex flex-wrap gap-2">
-        <span 
-          v-for="tool in tools" 
-          :key="tool" 
-          :class="['px-2 py-1 rounded text-sm flex items-center gap-1', mode === 'whitelist' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400']"
-        >
-          {{ tool }}
-          <button @click="removeTool(tool)" class="hover:text-white">
-            <XMarkIcon class="w-4 h-4" />
-          </button>
-        </span>
+      
+      <!-- Selected Tools -->
+      <div v-if="tools.length > 0" class="mt-3">
+        <p class="text-xs text-gray-500 mb-2">{{ mode === 'whitelist' ? 'Allowed' : 'Blocked' }} tools:</p>
+        <div class="flex flex-wrap gap-2">
+          <span 
+            v-for="tool in tools" 
+            :key="tool" 
+            :class="['px-2 py-1 rounded text-sm flex items-center gap-1', mode === 'whitelist' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400']"
+          >
+            {{ tool }}
+            <button @click="removeTool(tool)" class="hover:text-white">
+              <XMarkIcon class="w-4 h-4" />
+            </button>
+          </span>
+        </div>
       </div>
-      <p v-else class="text-gray-500 text-sm">No tools configured</p>
+      <p v-else class="text-gray-500 text-sm">No tools selected</p>
     </div>
 
-    <!-- Prefix Input -->
-    <div class="mb-4">
-      <label class="text-sm text-gray-400 mb-2 block">Tool Prefix (optional)</label>
-      <input 
-        v-model="prefix" 
-        type="text" 
-        placeholder="e.g. github → github_create_issue"
-        class="w-full bg-background-darker border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-primary focus:outline-none"
-      />
-      <p class="text-gray-500 text-xs mt-1">Adds a prefix to all tool names (alphanumeric + underscore only)</p>
+    <!-- Summary -->
+    <div v-if="mode === 'none' && prefix" class="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+      <p class="text-blue-400 text-sm">All tools will be exposed with prefix "{{ prefix }}_"</p>
+    </div>
+    <div v-else-if="mode === 'whitelist' && tools.length > 0" class="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+      <p class="text-green-400 text-sm">Only {{ tools.length }} tool(s) will be exposed{{ prefix ? ` with prefix "${prefix}_"` : '' }}</p>
+    </div>
+    <div v-else-if="mode === 'blacklist' && tools.length > 0" class="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+      <p class="text-red-400 text-sm">{{ tools.length }} tool(s) will be hidden{{ prefix ? `, rest will have prefix "${prefix}_"` : '' }}</p>
     </div>
 
     <!-- Save Button -->
@@ -104,8 +145,14 @@ import { ref, onMounted, computed, watch } from 'vue'
 import api from '@/api/client'
 import { FunnelIcon, XMarkIcon, CheckIcon } from '@heroicons/vue/24/outline'
 
+interface ToolInfo {
+  name: string
+  description?: string
+}
+
 const props = defineProps<{
   serverName: string
+  availableTools?: ToolInfo[]
 }>()
 
 interface GovernanceConfig {
@@ -122,6 +169,7 @@ const newTool = ref('')
 const saving = ref(false)
 const error = ref<string | null>(null)
 const success = ref<string | null>(null)
+const availableTools = ref<ToolInfo[]>([])
 
 const hasConfig = computed(() => {
   return tools.value.length > 0 || prefix.value.length > 0
@@ -133,6 +181,13 @@ watch(mode, (newMode, oldMode) => {
     tools.value = []
   }
 })
+
+// Watch props for available tools
+watch(() => props.availableTools, (newTools) => {
+  if (newTools) {
+    availableTools.value = newTools
+  }
+}, { immediate: true })
 
 onMounted(async () => {
   await loadConfig()
@@ -156,10 +211,21 @@ async function loadConfig() {
       tools.value = []
     }
   } catch (e) {
-    // No config exists, that's fine
     mode.value = 'none'
     tools.value = []
     prefix.value = ''
+  }
+}
+
+function isToolSelected(toolName: string): boolean {
+  return tools.value.includes(toolName)
+}
+
+function toggleTool(toolName: string) {
+  if (isToolSelected(toolName)) {
+    removeTool(toolName)
+  } else {
+    tools.value.push(toolName)
   }
 }
 
@@ -188,7 +254,7 @@ async function handleSave() {
     }
     
     await api.post(`/servers/${props.serverName}/governance`, payload)
-    success.value = 'Governance rules saved successfully!'
+    success.value = 'Governance rules saved!'
     
     setTimeout(() => { success.value = null }, 3000)
   } catch (e: any) {
@@ -199,7 +265,7 @@ async function handleSave() {
 }
 
 async function handleClear() {
-  if (!confirm('Clear all governance rules? All tools will be exposed.')) return
+  if (!confirm('Clear all governance rules? All tools will be exposed without prefix.')) return
   
   saving.value = true
   error.value = null
