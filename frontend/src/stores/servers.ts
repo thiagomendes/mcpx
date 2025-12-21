@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import api from '@/api/client'
+import { ERROR_MESSAGES } from '@/constants'
 
 export interface Server {
     id: string
@@ -42,7 +43,7 @@ export const useServersStore = defineStore('servers', () => {
             const response = await api.get('/servers')
             servers.value = response.data
         } catch (e: any) {
-            error.value = e.response?.data?.message || 'Failed to fetch servers'
+            error.value = e.response?.data?.message || ERROR_MESSAGES.FETCH_SERVERS_FAILED
         } finally {
             loading.value = false
         }
