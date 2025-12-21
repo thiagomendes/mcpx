@@ -122,7 +122,8 @@ async fn main() {
         .route("/api/servers/:name/oauth/store-tokens", post(routes::oauth::store_oauth_tokens))
         .route("/api/servers/:name/oauth/status", get(routes::oauth::oauth_status))
         .route("/api/servers/:name/oauth", delete(routes::oauth::revoke_oauth))
-        // MCP Proxy route (public, no auth - uses user_id in path)
+        // MCP Proxy route (public for now, API key protection optional in future)
+        // user_id is for multi-tenant isolation (avoid name collisions)
         .route("/mcp/:user_id/:server_name", post(routes::proxy::mcp_proxy))
         // Layers
         .layer(cors)

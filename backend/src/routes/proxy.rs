@@ -10,8 +10,8 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::services::crypto;
 
-/// MCP Proxy handler
-/// Receives requests from MCP clients (Claude Desktop) and forwards to real servers
+/// MCP Proxy handler (with user context - for future API key auth)
+/// Route: POST /mcp/:user_id/:server_name
 pub async fn mcp_proxy(
     State(state): State<Arc<AppState>>,
     Path((user_id, server_name)): Path<(String, String)>,
@@ -26,7 +26,7 @@ pub async fn mcp_proxy(
     
     // Find server in database
     let server = get_server_by_name(&state, &server_name, user_uuid).await
-        .map_err(|e| (StatusCode::NOT_FOUND, format!("Server not found: {}", e)))?;;
+        .map_err(|e| (StatusCode::NOT_FOUND, format!("Server not found: {}", e)))?;
     
     // Check server status
     if server.status.as_deref() == Some("disabled") {
