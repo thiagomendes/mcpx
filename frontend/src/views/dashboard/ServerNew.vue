@@ -339,7 +339,7 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
-const serversStore = useServersStore()
+const _serversStore = useServersStore()
 
 const form = reactive({
   name: '',
@@ -393,6 +393,7 @@ async function handleTest() {
       message: response.ok ? 'Connection successful!' : `Server returned ${response.status}`,
       latency_ms: 0,
       status_code: response.status,
+      tools: null,
     }
   } catch (e: any) {
     testResult.value = {
@@ -400,6 +401,7 @@ async function handleTest() {
       message: `Connection failed: ${e.message}`,
       latency_ms: 0,
       status_code: null,
+      tools: null,
     }
   } finally {
     testing.value = false

@@ -260,7 +260,7 @@ async function startAuth() {
             oauthComplete = true
           }
         } catch {
-      
+          // Ignore OAuth status check errors
         }
       }
       

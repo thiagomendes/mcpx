@@ -251,7 +251,7 @@ const statusBadgeClass = computed(() => {
 
 const nextHealthCheckCountdown = computed(() => {
   // Trigger reactivity on tick
-  countdownTick.value
+  void countdownTick.value
   
   if (!server.value?.last_health_check) return 'Pending...'
   
@@ -305,7 +305,7 @@ onMounted(async () => {
       if (oauthStatus.value?.connected) {
         await handleTest()
       }
-    } catch (e) {
+    } catch (_e) {
       oauthStatus.value = { connected: false, expires_at: null }
     }
   } else {
@@ -363,7 +363,7 @@ async function handleAuthorize() {
             oauthComplete = true
           }
         } catch {
-      
+          // Ignore OAuth status check errors
         }
       }
       

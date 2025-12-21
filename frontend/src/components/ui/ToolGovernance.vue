@@ -90,10 +90,10 @@
       </label>
       
       <!-- Available Tools -->
-      <div v-if="availableTools.length > 0" class="mb-3">
+      <div v-if="toolsList.length > 0" class="mb-3">
         <div class="flex flex-wrap gap-2">
           <button 
-            v-for="tool in availableTools" 
+            v-for="tool in toolsList" 
             :key="tool.name"
             @click="toggleTool(tool.name)"
             :class="[
@@ -189,7 +189,7 @@ const newTool = ref('')
 const saving = ref(false)
 const error = ref<string | null>(null)
 const success = ref<string | null>(null)
-const availableTools = ref<ToolInfo[]>([])
+const toolsList = ref<ToolInfo[]>([])
 
 const hasConfig = computed(() => {
   return selectedTools.value.length > 0 || prefix.value.length > 0
@@ -226,7 +226,7 @@ watch(filterMode, () => {
 })
 
 watch(() => props.availableTools, (newTools) => {
-  if (newTools) availableTools.value = newTools
+  if (newTools) toolsList.value = newTools
 }, { immediate: true })
 
 onMounted(async () => {
