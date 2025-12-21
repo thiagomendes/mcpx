@@ -305,7 +305,7 @@ onMounted(async () => {
       if (oauthStatus.value?.connected) {
         await handleTest()
       }
-    } catch (_e) {
+    } catch {
       oauthStatus.value = { connected: false, expires_at: null }
     }
   } else {
@@ -380,7 +380,7 @@ async function handleAuthorize() {
     } else {
       oauthError.value = result.error || 'OAuth authorization failed'
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     oauthError.value = e.message || 'Failed to start OAuth flow'
   } finally {
     authorizing.value = false
@@ -394,7 +394,7 @@ async function handleTest() {
   
   try {
     testResult.value = await serversStore.testServer(server.value.name)
-  } catch (e: any) {
+  } catch (e: unknown) {
     testResult.value = {
       success: false,
       message: e.response?.data || 'Test failed',

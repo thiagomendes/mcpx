@@ -76,7 +76,7 @@ onMounted(async () => {
     } else {
       error.value = result.error || 'Unknown error during token exchange'
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     processing.value = false
     error.value = e.message || 'Failed to complete authorization'
   }

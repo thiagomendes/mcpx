@@ -252,7 +252,7 @@ async function loadConfig() {
       limitEnabled.value = false
       selectedTools.value = []
     }
-  } catch (_e) {
+  } catch {
     limitEnabled.value = false
     selectedTools.value = []
     prefix.value = ''

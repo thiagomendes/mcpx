@@ -43,7 +43,7 @@ export const useServersStore = defineStore('servers', () => {
             const response = await api.get('/servers')
             servers.value = response.data
         } catch (e: unknown) {
-    const err = e as { response?: { data?: { message?: string } } }
+    const _err = e as { response?: { data?: { message?: string } } }
             error.value = e.response?.data?.message || ERROR_MESSAGES.FETCH_SERVERS_FAILED
         } finally {
             loading.value = false

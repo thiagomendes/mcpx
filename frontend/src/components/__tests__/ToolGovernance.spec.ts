@@ -52,7 +52,7 @@ describe('ToolGovernance', () => {
             },
         })
 
-        const wrapper = mount(ToolGovernance, {
+        const _wrapper = mount(ToolGovernance, {
             props: { serverName: 'test-server' },
         })
         await flushPromises()

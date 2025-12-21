@@ -395,7 +395,7 @@ async function handleTest() {
       status_code: response.status,
       tools: null,
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     testResult.value = {
       success: false,
       message: `Connection failed: ${e.message}`,
