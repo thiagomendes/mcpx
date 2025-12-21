@@ -252,7 +252,7 @@ async function loadConfig() {
       limitEnabled.value = false
       selectedTools.value = []
     }
-  } catch (e) {
+  } catch (_e) {
     limitEnabled.value = false
     selectedTools.value = []
     prefix.value = ''
@@ -298,8 +298,9 @@ async function handleSave() {
     await api.post(`/servers/${props.serverName}/governance`, payload)
     success.value = 'Governance rules saved!'
     setTimeout(() => { success.value = null }, 3000)
-  } catch (e: any) {
-    error.value = e.response?.data || 'Failed to save governance rules'
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: string } }
+    error.value = err.response?.data || 'Failed to save governance rules'
   } finally {
     saving.value = false
   }
@@ -318,8 +319,9 @@ async function handleClear() {
     prefix.value = ''
     success.value = 'Governance rules cleared!'
     setTimeout(() => { success.value = null }, 3000)
-  } catch (e: any) {
-    error.value = e.response?.data || 'Failed to clear rules'
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: string } }
+    error.value = err.response?.data || 'Failed to clear rules'
   } finally {
     saving.value = false
   }

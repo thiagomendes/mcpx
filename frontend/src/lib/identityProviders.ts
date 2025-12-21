@@ -25,7 +25,7 @@ export const IDENTITY_PROVIDERS: Record<IdentityProviderType, IdentityProviderCo
         name: 'Google',
         icon: 'google',
         enabled: true,
-        loginPath: `${BACKEND_BASE}/auth/google/login`,
+        loginPath: `${BACKEND_BASE}/auth/google`,
         color: '#4285F4',
         hoverColor: '#3367D6',
     },
