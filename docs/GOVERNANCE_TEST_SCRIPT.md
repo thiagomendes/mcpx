@@ -11,7 +11,7 @@ Este roteiro alterna entre **Terminal (curl+jq)** e **Interface Web** para valid
 ```bash
 # Cole isso no terminal uma vez
 USER_ID="2d150658-73c1-418d-af2f-a2fbbfbe728b"
-SERVER="deepwiki"
+SERVER="cloudflare"
 BASE="http://localhost:8080"
 
 # Função interativa: lista tools e permite escolher qual consumir
@@ -137,7 +137,7 @@ ask_question
 ```
 
 ### 1.2 Interface: Verificar estado
-1. Acesse: http://localhost:3000/servers/deepwiki
+1. Acesse: http://localhost:3000/servers/cloudflare
 2. Clique em **"Test Connection"** (para carregar lista de tools)
 3. Role até **"Tool Governance"**
 4. Verifique: "All Tools" selecionado, sem prefix, sem filtros
@@ -279,14 +279,14 @@ ask_question
 
 ### 8.2 Terminal: Tentar chamar tool permitida
 ```bash
-SESSION=$(curl -s -i -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/deepwiki" \
+SESSION=$(curl -s -i -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/cloudflare" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}' \
   | grep "^mcp-session-id:" | cut -d' ' -f2 | tr -d '\r\n')
 
 # Chamar tool PERMITIDA
-curl -s -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/deepwiki" \
+curl -s -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/cloudflare" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $SESSION" \
@@ -297,7 +297,7 @@ curl -s -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/
 
 ### 8.3 Terminal: Tentar chamar tool BLOQUEADA
 ```bash
-curl -s -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/deepwiki" \
+curl -s -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/cloudflare" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $SESSION" \
@@ -348,14 +348,14 @@ wiki_ask_question
 
 ### 9.3 Terminal: Chamar tool COM prefix (como cliente vê)
 ```bash
-SESSION=$(curl -s -i -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/deepwiki" \
+SESSION=$(curl -s -i -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/cloudflare" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}' \
   | grep "^mcp-session-id:" | cut -d' ' -f2 | tr -d '\r\n')
 
 # Chamar com o prefix wiki_ (mcpx deve remover antes de enviar para DeepWiki)
-curl -s -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/deepwiki" \
+curl -s -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/cloudflare" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $SESSION" \
