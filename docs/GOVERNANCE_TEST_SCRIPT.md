@@ -230,3 +230,43 @@ Tool 'read_wiki_structure' is not allowed by governance policy
 | 6 | Prefix + Allowlist | 1 tool (com prefix) |
 | 7 | Clear | 3 tools (original) |
 | 8 | Allowlist + tools/call | Permitir/Bloquear tool call |
+| 9 | Prefix + tools/call | Strip prefix antes de enviar |
+
+---
+
+## Caso 9: Testar strip de prefix no tools/call
+
+### 9.1 Interface: Configurar prefix
+1. Desative "Limit tool exposure" (toggle off)
+2. No campo "Tool Prefix", digite: `wiki`
+3. Clique em "Save Rules"
+
+### 9.2 Terminal: Verificar que tools têm prefix
+```bash
+tools_list
+```
+
+**Resultado esperado:**
+```
+wiki_read_wiki_structure
+wiki_read_wiki_contents
+wiki_ask_question
+```
+
+### 9.3 Terminal: Chamar tool COM prefix (como cliente vê)
+```bash
+SESSION=$(curl -s -i -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/deepwiki" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}' \
+  | grep "^mcp-session-id:" | cut -d' ' -f2 | tr -d '\r\n')
+
+# Chamar com o prefix wiki_ (mcpx deve remover antes de enviar para DeepWiki)
+curl -s -X POST "http://localhost:8080/mcp/2d150658-73c1-418d-af2f-a2fbbfbe728b/deepwiki" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SESSION" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"wiki_ask_question","arguments":{"repoName":"facebook/react","question":"What is React?"}},"id":3}' | head -c 500
+```
+
+**Resultado esperado:** Resposta do DeepWiki (mcpx removeu o prefix `wiki_` antes de enviar)
