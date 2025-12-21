@@ -34,22 +34,24 @@
       <label class="text-sm text-gray-400 mb-2 block">Tool Filter</label>
       <div class="flex gap-2">
         <button 
-          @click="setMode('none')" 
+          @click="mode = 'none'" 
           :class="['px-3 py-1.5 rounded-lg text-sm transition-colors', mode === 'none' ? 'bg-primary text-white' : 'bg-background-darker text-gray-400 hover:text-white']"
         >
           All Tools
         </button>
         <button 
-          @click="setMode('allowlist')" 
+          @click="mode = 'allowlist'" 
           :class="['px-3 py-1.5 rounded-lg text-sm transition-colors', mode === 'allowlist' ? 'bg-green-600 text-white' : 'bg-background-darker text-gray-400 hover:text-white']"
         >
           Allowlist
+          <span v-if="allowedTools.length > 0" class="ml-1 text-xs">({{ allowedTools.length }})</span>
         </button>
         <button 
-          @click="setMode('blocklist')" 
+          @click="mode = 'blocklist'" 
           :class="['px-3 py-1.5 rounded-lg text-sm transition-colors', mode === 'blocklist' ? 'bg-red-600 text-white' : 'bg-background-darker text-gray-400 hover:text-white']"
         >
           Blocklist
+          <span v-if="blockedTools.length > 0" class="ml-1 text-xs">({{ blockedTools.length }})</span>
         </button>
       </div>
       <p class="text-gray-500 text-xs mt-2">
@@ -100,11 +102,11 @@
       </div>
       
       <!-- Selected Tools -->
-      <div v-if="tools.length > 0" class="mt-3">
+      <div v-if="currentTools.length > 0" class="mt-3">
         <p class="text-xs text-gray-500 mb-2">{{ mode === 'allowlist' ? 'Allowed' : 'Blocked' }} tools:</p>
         <div class="flex flex-wrap gap-2">
           <span 
-            v-for="tool in tools" 
+            v-for="tool in currentTools" 
             :key="tool" 
             :class="['px-2 py-1 rounded text-sm flex items-center gap-1', mode === 'allowlist' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400']"
           >
@@ -121,11 +123,11 @@
     <div v-if="mode === 'none' && prefix" class="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
       <p class="text-blue-400 text-sm">All tools will be exposed with prefix "{{ prefix }}_"</p>
     </div>
-    <div v-else-if="mode === 'allowlist' && tools.length > 0" class="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-      <p class="text-green-400 text-sm">Only {{ tools.length }} tool(s) will be exposed{{ prefix ? ` with prefix "${prefix}_"` : '' }}</p>
+    <div v-else-if="mode === 'allowlist' && allowedTools.length > 0" class="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+      <p class="text-green-400 text-sm">Only {{ allowedTools.length }} tool(s) will be exposed{{ prefix ? ` with prefix "${prefix}_"` : '' }}</p>
     </div>
-    <div v-else-if="mode === 'blocklist' && tools.length > 0" class="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-      <p class="text-red-400 text-sm">{{ tools.length }} tool(s) will be hidden{{ prefix ? `, rest will have prefix "${prefix}_"` : '' }}</p>
+    <div v-else-if="mode === 'blocklist' && blockedTools.length > 0" class="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+      <p class="text-red-400 text-sm">{{ blockedTools.length }} tool(s) will be hidden{{ prefix ? `, rest will have prefix "${prefix}_"` : '' }}</p>
     </div>
 
     <!-- Save Button -->
@@ -169,7 +171,8 @@ interface GovernanceConfig {
 }
 
 const mode = ref<'none' | 'allowlist' | 'blocklist'>('none')
-const tools = ref<string[]>([])
+const allowedTools = ref<string[]>([])  // Separate array for allowlist
+const blockedTools = ref<string[]>([])  // Separate array for blocklist
 const prefix = ref('')
 const newTool = ref('')
 const saving = ref(false)
@@ -177,17 +180,14 @@ const error = ref<string | null>(null)
 const success = ref<string | null>(null)
 const availableTools = ref<ToolInfo[]>([])
 
-const hasConfig = computed(() => {
-  return tools.value.length > 0 || prefix.value.length > 0
+// Get current tools array based on mode
+const currentTools = computed(() => {
+  return mode.value === 'allowlist' ? allowedTools.value : blockedTools.value
 })
 
-// Function to change mode and clear tools
-function setMode(newMode: 'none' | 'allowlist' | 'blocklist') {
-  if (mode.value !== newMode) {
-    mode.value = newMode
-    tools.value = [] // Clear tools when switching modes
-  }
-}
+const hasConfig = computed(() => {
+  return allowedTools.value.length > 0 || blockedTools.value.length > 0 || prefix.value.length > 0
+})
 
 // Watch props for available tools
 watch(() => props.availableTools, (newTools) => {
@@ -206,46 +206,51 @@ async function loadConfig() {
     const config = response.data
     
     prefix.value = config.tool_prefix || ''
+    allowedTools.value = config.allowed_tools || []
+    blockedTools.value = config.denied_tools || []
     
-    if (config.allowed_tools.length > 0) {
+    if (allowedTools.value.length > 0) {
       mode.value = 'allowlist'
-      tools.value = config.allowed_tools
-    } else if (config.denied_tools.length > 0) {
+    } else if (blockedTools.value.length > 0) {
       mode.value = 'blocklist'
-      tools.value = config.denied_tools
     } else {
       mode.value = 'none'
-      tools.value = []
     }
   } catch (e) {
     mode.value = 'none'
-    tools.value = []
+    allowedTools.value = []
+    blockedTools.value = []
     prefix.value = ''
   }
 }
 
 function isToolSelected(toolName: string): boolean {
-  return tools.value.includes(toolName)
+  return currentTools.value.includes(toolName)
 }
 
 function toggleTool(toolName: string) {
-  if (isToolSelected(toolName)) {
-    removeTool(toolName)
+  const arr = mode.value === 'allowlist' ? allowedTools : blockedTools
+  if (arr.value.includes(toolName)) {
+    arr.value = arr.value.filter(t => t !== toolName)
   } else {
-    tools.value.push(toolName)
+    arr.value.push(toolName)
   }
 }
 
 function addTool() {
   const tool = newTool.value.trim()
-  if (tool && !tools.value.includes(tool)) {
-    tools.value.push(tool)
-    newTool.value = ''
+  if (!tool) return
+  
+  const arr = mode.value === 'allowlist' ? allowedTools : blockedTools
+  if (!arr.value.includes(tool)) {
+    arr.value.push(tool)
   }
+  newTool.value = ''
 }
 
 function removeTool(tool: string) {
-  tools.value = tools.value.filter(t => t !== tool)
+  const arr = mode.value === 'allowlist' ? allowedTools : blockedTools
+  arr.value = arr.value.filter(t => t !== tool)
 }
 
 async function handleSave() {
@@ -254,15 +259,32 @@ async function handleSave() {
   success.value = null
   
   try {
+    // Based on mode, send appropriate tools
     const payload = {
-      allowed_tools: mode.value === 'allowlist' ? tools.value : [],
-      denied_tools: mode.value === 'blocklist' ? tools.value : [],
+      allowed_tools: mode.value === 'allowlist' ? allowedTools.value : [],
+      denied_tools: mode.value === 'blocklist' ? blockedTools.value : [],
       tool_prefix: prefix.value.trim()
     }
     
-    await api.post(`/servers/${props.serverName}/governance`, payload)
-    success.value = 'Governance rules saved!'
+    // If mode is 'none', clear both lists
+    if (mode.value === 'none') {
+      payload.allowed_tools = []
+      payload.denied_tools = []
+    }
     
+    await api.post(`/servers/${props.serverName}/governance`, payload)
+    
+    // Clear the list that's not active
+    if (mode.value === 'allowlist') {
+      blockedTools.value = []
+    } else if (mode.value === 'blocklist') {
+      allowedTools.value = []
+    } else {
+      allowedTools.value = []
+      blockedTools.value = []
+    }
+    
+    success.value = 'Governance rules saved!'
     setTimeout(() => { success.value = null }, 3000)
   } catch (e: any) {
     error.value = e.response?.data || 'Failed to save governance rules'
@@ -280,7 +302,8 @@ async function handleClear() {
   try {
     await api.delete(`/servers/${props.serverName}/governance`)
     mode.value = 'none'
-    tools.value = []
+    allowedTools.value = []
+    blockedTools.value = []
     prefix.value = ''
     success.value = 'Governance rules cleared!'
     
