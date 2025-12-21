@@ -215,7 +215,7 @@ pub async fn update_server(
     .bind(&payload.name)
     .bind(&payload.url)
     .bind(&payload.transport)
-    .bind(&payload.enabled)
+    .bind(payload.enabled)
     .fetch_optional(&state.db.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
@@ -265,8 +265,8 @@ pub async fn test_server(
     let access_token: Option<String> = if server.auth_type.as_deref() == Some("oauth_auto") {
         tracing::info!("Server {} requires OAuth, fetching token", name);
         let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_OAUTH_TOKEN)
-        .bind(&server.id)
-        .bind(&user_id)
+        .bind(server.id)
+        .bind(user_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -303,7 +303,7 @@ pub async fn test_server(
         Ok(tools) => {
         
             let _ = sqlx::query(SQL_UPDATE_SERVER_STATUS)
-                .bind(&server.id)
+                .bind(server.id)
                 .execute(&state.db.pool)
                 .await;
             

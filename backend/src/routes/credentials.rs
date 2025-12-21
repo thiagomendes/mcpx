@@ -54,14 +54,14 @@ pub async fn list_credentials(
 ) -> Result<Json<Vec<CredentialResponse>>, (StatusCode, String)> {
     let server = sqlx::query_scalar::<_, Uuid>(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(&auth_user.user_id)
+        .bind(auth_user.user_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
         .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let credentials = sqlx::query_as::<_, Credential>(SQL_SELECT_CREDENTIALS)
-        .bind(&server)
+        .bind(server)
         .fetch_all(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -93,7 +93,7 @@ pub async fn create_credential(
 
     let server_id = sqlx::query_scalar::<_, Uuid>(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(&auth_user.user_id)
+        .bind(auth_user.user_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
@@ -104,7 +104,7 @@ pub async fn create_credential(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let credential = sqlx::query_as::<_, Credential>(SQL_INSERT_CREDENTIAL)
-        .bind(&server_id)
+        .bind(server_id)
         .bind(&req.credential_type)
         .bind(&encrypted)
         .bind(&req.name)
@@ -120,7 +120,7 @@ pub async fn create_credential(
 
     sqlx::query(SQL_UPDATE_AUTH_TYPE)
         .bind(auth_type)
-        .bind(&server_id)
+        .bind(server_id)
         .execute(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -142,15 +142,15 @@ pub async fn delete_credential(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let server_id = sqlx::query_scalar::<_, Uuid>(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(&auth_user.user_id)
+        .bind(auth_user.user_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
         .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let result = sqlx::query(SQL_DELETE_CREDENTIAL)
-        .bind(&credential_id)
-        .bind(&server_id)
+        .bind(credential_id)
+        .bind(server_id)
         .execute(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -160,7 +160,7 @@ pub async fn delete_credential(
     }
 
     let count: i64 = sqlx::query_scalar(SQL_COUNT_CREDENTIALS)
-        .bind(&server_id)
+        .bind(server_id)
         .fetch_one(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -168,7 +168,7 @@ pub async fn delete_credential(
     if count == 0 {
         sqlx::query(SQL_UPDATE_AUTH_TYPE)
             .bind("none")
-            .bind(&server_id)
+            .bind(server_id)
             .execute(&state.db.pool)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;

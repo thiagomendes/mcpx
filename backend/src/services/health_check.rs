@@ -86,7 +86,7 @@ async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encry
             sqlx::query(
                 "UPDATE servers SET status = 'healthy', last_health_check = NOW(), health_error = NULL WHERE id = $1"
             )
-            .bind(&server.id)
+            .bind(server.id)
             .execute(&db.pool)
             .await
             .map_err(|e| format!("Failed to update server status: {}", e))?;
@@ -124,7 +124,7 @@ async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encry
             )
             .bind(&new_status)
             .bind(&error_msg)
-            .bind(&server.id)
+            .bind(server.id)
             .execute(&db.pool)
             .await
             .map_err(|e| format!("Failed to update server status: {}", e))?;
@@ -142,8 +142,8 @@ async fn get_access_token(db: &Database, server_id: Uuid, user_id: Uuid, encrypt
     let row: Option<(String, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
         "SELECT access_token_encrypted, expires_at FROM oauth_tokens WHERE server_id = $1 AND user_id = $2"
     )
-    .bind(&server_id)
-    .bind(&user_id)
+    .bind(server_id)
+    .bind(user_id)
     .fetch_optional(&db.pool)
     .await
     .map_err(|e| format!("Failed to fetch token: {}", e))?;
@@ -171,8 +171,8 @@ async fn try_refresh_token(db: &Database, server_id: Uuid, user_id: Uuid, encryp
     let row: Option<(Option<String>,)> = sqlx::query_as(
         "SELECT refresh_token_encrypted FROM oauth_tokens WHERE server_id = $1 AND user_id = $2"
     )
-    .bind(&server_id)
-    .bind(&user_id)
+    .bind(server_id)
+    .bind(user_id)
     .fetch_optional(&db.pool)
     .await
     .map_err(|e| format!("Failed to fetch refresh token: {}", e))?;

@@ -135,11 +135,10 @@ pub async fn set_governance(
         return Err((StatusCode::BAD_REQUEST, error::MUTUALLY_EXCLUSIVE.to_string()));
     }
 
-    if !payload.tool_prefix.is_empty() {
-        if !payload.tool_prefix.chars().all(|c| c.is_alphanumeric() || c == '_') {
+    if !payload.tool_prefix.is_empty()
+        && !payload.tool_prefix.chars().all(|c| c.is_alphanumeric() || c == '_') {
             return Err((StatusCode::BAD_REQUEST, error::INVALID_PREFIX_FORMAT.to_string()));
         }
-    }
 
     let allowed_json = serde_json::to_value(&payload.allowed_tools)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;

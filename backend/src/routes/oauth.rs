@@ -57,7 +57,7 @@ pub async fn store_oauth_tokens(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let server_id: Option<Uuid> = sqlx::query_scalar(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(&auth_user.user_id)
+        .bind(auth_user.user_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -79,12 +79,12 @@ pub async fn store_oauth_tokens(
     let expires_at = tokens.expires_in.map(|secs| Utc::now() + Duration::seconds(secs));
 
     sqlx::query(SQL_UPSERT_OAUTH_TOKENS)
-        .bind(&server_id)
-        .bind(&auth_user.user_id)
+        .bind(server_id)
+        .bind(auth_user.user_id)
         .bind(&access_encrypted)
         .bind(&refresh_encrypted)
-        .bind(&tokens.token_type.unwrap_or_else(|| "Bearer".to_string()))
-        .bind(&expires_at)
+        .bind(tokens.token_type.unwrap_or_else(|| "Bearer".to_string()))
+        .bind(expires_at)
         .bind(&tokens.scope)
         .execute(&state.db.pool)
         .await
@@ -100,7 +100,7 @@ pub async fn oauth_status(
 ) -> Result<Json<OAuthStatusResponse>, (StatusCode, String)> {
     let server_id: Option<Uuid> = sqlx::query_scalar(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(&auth_user.user_id)
+        .bind(auth_user.user_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -109,8 +109,8 @@ pub async fn oauth_status(
         .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(SQL_SELECT_OAUTH_STATUS)
-        .bind(&server_id)
-        .bind(&auth_user.user_id)
+        .bind(server_id)
+        .bind(auth_user.user_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -134,7 +134,7 @@ pub async fn revoke_oauth(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let server_id: Option<Uuid> = sqlx::query_scalar(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(&auth_user.user_id)
+        .bind(auth_user.user_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -143,8 +143,8 @@ pub async fn revoke_oauth(
         .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     sqlx::query(SQL_DELETE_OAUTH_TOKENS)
-        .bind(&server_id)
-        .bind(&auth_user.user_id)
+        .bind(server_id)
+        .bind(auth_user.user_id)
         .execute(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
