@@ -4,7 +4,7 @@
     <aside class="w-64 border-r border-border p-4 flex flex-col">
       <!-- Logo -->
       <div class="flex items-center gap-3 mb-8 px-2">
-        <img src="@/assets/mcpx-logo.png" alt="mcpx" class="w-10 h-10 object-contain" />
+        <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-10 h-10 object-contain" />
         <span class="text-xl font-bold text-gradient">mcpx</span>
       </div>
 
