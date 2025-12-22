@@ -327,7 +327,7 @@ import { useRouter } from 'vue-router'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import InfoTooltip from '@/components/ui/InfoTooltip.vue'
 import ServerSetupModal from '@/components/ui/ServerSetupModal.vue'
-import { useServersStore, type TestResult } from '@/stores/servers'
+import { type TestResult } from '@/stores/servers'
 import { 
   ExclamationCircleIcon, 
   CheckCircleIcon, 
@@ -339,7 +339,6 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
-const _serversStore = useServersStore()
 
 const form = reactive({
   name: '',
@@ -396,9 +395,10 @@ async function handleTest() {
       tools: null,
     }
   } catch (e: unknown) {
+    const err = e as Error
     testResult.value = {
       success: false,
-      message: `Connection failed: ${e.message}`,
+      message: `Connection failed: ${err.message}`,
       latency_ms: 0,
       status_code: null,
       tools: null,

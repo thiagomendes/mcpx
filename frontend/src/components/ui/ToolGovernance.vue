@@ -166,7 +166,7 @@ import { FunnelIcon, XMarkIcon, CheckIcon } from '@heroicons/vue/24/outline'
 
 interface ToolInfo {
   name: string
-  description?: string
+  description?: string | null
 }
 
 const props = defineProps<{

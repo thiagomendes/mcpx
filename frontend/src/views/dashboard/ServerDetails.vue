@@ -381,7 +381,8 @@ async function handleAuthorize() {
       oauthError.value = result.error || 'OAuth authorization failed'
     }
   } catch (e: unknown) {
-    oauthError.value = e.message || 'Failed to start OAuth flow'
+    const err = e as Error
+    oauthError.value = err.message || 'Failed to start OAuth flow'
   } finally {
     authorizing.value = false
   }
@@ -395,11 +396,13 @@ async function handleTest() {
   try {
     testResult.value = await serversStore.testServer(server.value.name)
   } catch (e: unknown) {
+    const err = e as { response?: { data?: string } }
     testResult.value = {
       success: false,
-      message: e.response?.data || 'Test failed',
+      message: err.response?.data || 'Test failed',
       latency_ms: 0,
       status_code: null,
+      tools: null,
     }
   } finally {
     testing.value = false
