@@ -4,9 +4,7 @@
     <aside class="w-64 border-r border-border p-4 flex flex-col">
       <!-- Logo -->
       <div class="flex items-center gap-3 mb-8 px-2">
-        <div class="w-10 h-10 bg-gradient-primary rounded-lg flex items-center justify-center">
-          <McpIcon :size="24" color="white" />
-        </div>
+        <img src="@/assets/mcpx-logo.png" alt="mcpx" class="w-10 h-10 object-contain" />
         <span class="text-xl font-bold text-gradient">mcpx</span>
       </div>
 
@@ -74,7 +72,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import McpIcon from '@/components/icons/McpIcon.vue'
 import { 
   Squares2X2Icon, 
   ServerIcon, 
