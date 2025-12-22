@@ -53,7 +53,7 @@
           <LinkIcon class="w-5 h-5 text-primary" />
           Proxy URL
         </h3>
-        <p class="text-gray-400 text-sm mb-3">Use this URL in Claude Desktop or other MCP clients:</p>
+        <p class="text-gray-400 text-sm mb-3">Use this URL in your MCP client:</p>
         <div class="flex items-center gap-2">
           <code class="flex-1 bg-background-darker px-4 py-2 rounded font-mono text-sm text-primary">
             {{ server.proxy_url }}
@@ -65,15 +65,15 @@
         </div>
       </div>
 
-      <!-- Claude Desktop Config -->
+      <!-- MCP Client Config -->
       <div class="card mb-6">
         <h3 class="font-semibold mb-3 flex items-center gap-2">
           <DocumentTextIcon class="w-5 h-5 text-primary" />
-          Claude Desktop Configuration
+          MCP Client Configuration
         </h3>
-        <p class="text-gray-400 text-sm mb-3">Add this to your Claude Desktop config:</p>
-        <pre class="bg-background-darker px-4 py-3 rounded font-mono text-sm overflow-x-auto">{{ claudeConfig }}</pre>
-        <button @click="copyClaudeConfig" class="btn btn-secondary mt-3 flex items-center gap-2">
+        <p class="text-gray-400 text-sm mb-3">Add this to your MCP client config:</p>
+        <pre class="bg-background-darker px-4 py-3 rounded font-mono text-sm overflow-x-auto">{{ mcpConfig }}</pre>
+        <button @click="copyMcpConfig" class="btn btn-secondary mt-3 flex items-center gap-2">
           <ClipboardDocumentIcon class="w-5 h-5" />
           Copy Config
         </button>
@@ -212,7 +212,7 @@ let countdownInterval: ReturnType<typeof setInterval> | null = null
 
 const HEALTH_CHECK_INTERVAL_SECONDS = 300 // 5 minutes
 
-const claudeConfig = computed(() => {
+const mcpConfig = computed(() => {
   if (!server.value) return ''
   return JSON.stringify({
     mcpServers: {
@@ -420,8 +420,8 @@ function copyProxyUrl() {
   alert('Proxy URL copied!')
 }
 
-function copyClaudeConfig() {
-  navigator.clipboard.writeText(claudeConfig.value)
+function copyMcpConfig() {
+  navigator.clipboard.writeText(mcpConfig.value)
   alert('Config copied!')
 }
 </script>

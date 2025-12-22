@@ -119,15 +119,15 @@
         </div>
       </div>
 
-      <!-- Claude Desktop Config -->
+      <!-- MCP Client Config -->
       <div class="card mb-6">
         <h3 class="font-semibold mb-3 flex items-center gap-2">
           <DocumentTextIcon class="w-5 h-5 text-primary" />
-          Claude Desktop Configuration
+          MCP Client Configuration
         </h3>
-        <p class="text-gray-400 text-sm mb-3">Add this to your Claude Desktop config:</p>
-        <pre class="bg-background-darker px-4 py-3 rounded font-mono text-sm overflow-x-auto">{{ claudeConfig }}</pre>
-        <button @click="copyClaudeConfig" class="btn btn-secondary mt-3 flex items-center gap-2">
+        <p class="text-gray-400 text-sm mb-3">Add this to your MCP client config:</p>
+        <pre class="bg-background-darker px-4 py-3 rounded font-mono text-sm overflow-x-auto">{{ mcpConfig }}</pre>
+        <button @click="copyMcpConfig" class="btn btn-secondary mt-3 flex items-center gap-2">
           <ClipboardDocumentIcon class="w-5 h-5" />
           Copy Config
         </button>
@@ -217,13 +217,12 @@ const availableServers = computed(() => {
   return serversStore.servers.filter(s => !assignedNames.has(s.name))
 })
 
-const claudeConfig = computed(() => {
+const mcpConfig = computed(() => {
   if (!gateway.value) return ''
   return JSON.stringify({
     "mcpServers": {
       [gateway.value.slug]: {
-        "url": gateway.value.proxy_url,
-        "transport": "streamable-http"
+        "url": gateway.value.proxy_url
       }
     }
   }, null, 2)
@@ -293,9 +292,9 @@ function copyProxyUrl() {
   }
 }
 
-function copyClaudeConfig() {
-  navigator.clipboard.writeText(claudeConfig.value)
-  alert('Claude config copied to clipboard!')
+function copyMcpConfig() {
+  navigator.clipboard.writeText(mcpConfig.value)
+  alert('MCP config copied to clipboard!')
 }
 
 async function toggleEnabled() {

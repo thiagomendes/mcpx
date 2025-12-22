@@ -157,7 +157,7 @@ async fn handle_gateway_proxy(
     
     match method {
         "initialize" => handle_gateway_initialize(state, &gateway, user_id, &servers, headers, body_bytes.to_vec()).await,
-        "tools/list" => handle_gateway_tools_list(state, &gateway, &servers, headers, body_bytes.to_vec()).await,
+        "tools/list" => handle_gateway_tools_list(state, &gateway, &servers, headers, &request, body_bytes.to_vec()).await,
         "tools/call" => handle_gateway_tools_call(state, &gateway, &servers, headers, &request, body_bytes.to_vec()).await,
         _ => {
             if let Some(server) = servers.first() {
@@ -233,6 +233,7 @@ async fn handle_gateway_tools_list(
     _gateway: &GatewayRow,
     servers: &[ServerRow],
     _headers: HeaderMap,
+    request: &serde_json::Value,
     _body: Vec<u8>,
 ) -> Result<Response, (StatusCode, String)> {
     #[derive(Debug, Clone, Serialize)]
@@ -262,11 +263,11 @@ async fn handle_gateway_tools_list(
                         continue;
                     }
                     
-                    let prefixed_name = governance.add_prefix(&original_name);
-                    let gateway_prefixed_name = format!("{}_{}", server.name, prefixed_name);
+                    // Only use governance prefix, no server name prefix
+                    let final_name = governance.add_prefix(&original_name);
                     
                     all_tools.push(AggregatedTool {
-                        name: gateway_prefixed_name,
+                        name: final_name,
                         description: tool.description,
                         input_schema: tool.input_schema,
                     });
@@ -278,9 +279,11 @@ async fn handle_gateway_tools_list(
         }
     }
     
+    let request_id = request.get("id").cloned().unwrap_or(serde_json::json!(1));
+    
     let response_json = serde_json::json!({
         "jsonrpc": "2.0",
-        "id": 1,
+        "id": request_id,
         "result": {
             "tools": all_tools
         }
@@ -310,36 +313,43 @@ async fn handle_gateway_tools_call(
         .and_then(|n| n.as_str())
         .ok_or((StatusCode::BAD_REQUEST, "Missing tool name".to_string()))?;
     
-    let (server_name, original_tool) = tool_name
-        .split_once('_')
-        .ok_or((StatusCode::BAD_REQUEST, format!("Invalid prefixed tool name: {}", tool_name)))?;
-    
-    let server = servers.iter()
-        .find(|s| s.name == server_name)
-        .ok_or((StatusCode::NOT_FOUND, format!("Server '{}' not found in gateway", server_name)))?;
-    
-    let governance = get_governance_config(state, server.id).await.unwrap_or_default();
-    let final_tool_name = governance.strip_prefix(original_tool);
-    
-    if !governance.is_tool_allowed(final_tool_name) {
-        return Err((StatusCode::FORBIDDEN, format!("Tool '{}' is not allowed by governance policy", tool_name)));
-    }
-    
-    let mut modified_request = request.clone();
-    if let Some(params) = modified_request.get_mut("params") {
-        if let Some(name) = params.get_mut("name") {
-            *name = serde_json::json!(final_tool_name);
+    // Try each server to find one that has this tool
+    for server in servers {
+        let governance = get_governance_config(state, server.id).await.unwrap_or_default();
+        
+        // Strip governance prefix to get original tool name
+        let original_tool_name = governance.strip_prefix(tool_name);
+        
+        // Check if this tool is allowed by governance
+        if !governance.is_tool_allowed(original_tool_name) {
+            continue;
         }
+        
+        // Check if this was the right server (prefix matched)
+        let expected_prefixed = governance.add_prefix(original_tool_name);
+        if expected_prefixed != tool_name {
+            continue;
+        }
+        
+        // Found the right server - forward the request
+        let mut modified_request = request.clone();
+        if let Some(params) = modified_request.get_mut("params") {
+            if let Some(name) = params.get_mut("name") {
+                *name = serde_json::json!(original_tool_name);
+            }
+        }
+        
+        let modified_body = serde_json::to_vec(&modified_request)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;
+        
+        let auth_headers = build_auth_headers(state, server).await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
+        
+        return forward_request(&server.url, headers, auth_headers, modified_body).await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)));
     }
     
-    let modified_body = serde_json::to_vec(&modified_request)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;
-    
-    let auth_headers = build_auth_headers(state, server).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
-    
-    forward_request(&server.url, headers, auth_headers, modified_body).await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)))
+    Err((StatusCode::NOT_FOUND, format!("Tool '{}' not found in any gateway server", tool_name)))
 }
 
 #[derive(Debug, Clone, Default)]
