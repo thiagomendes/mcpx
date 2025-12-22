@@ -1,156 +1,97 @@
 # MCPX - Estado do Projeto e Próximos Passos
 
-**Última atualização:** 2025-12-21 09:50
-**Commit mais recente:** 2042d2d (fix: MCP Proxy validated - single route for multi-tenant isolation)
+**Última atualização:** 2025-12-21 17:55
+**Branch:** feature/tool-governance
 
 ---
 
 ## ✅ IMPLEMENTADO E FUNCIONANDO
 
-### MCP Proxy Layer (`/mcp/:user_id/:server_name`)
+### Tool Governance (`/servers/:name/governance`)
 
-**Arquivo:** `backend/src/routes/proxy.rs`
+**Status:** ✅ **VALIDADO** - 8 casos de teste passaram!
 
-**Status:** ✅ **VALIDADO** - Funcionando corretamente!
-
-**O que foi feito:**
-- Handler `mcp_proxy` em `proxy.rs`
-- Rota única `/mcp/:user_id/:server_name` (user_id para isolamento multi-tenant)
-- Rota pública por enquanto (API key opcional no futuro)
-- `Accept: application/json, text/event-stream` header
-- Forwarding do header `Mcp-Session-Id`
-- Injeção de auth headers (API Key, Bearer, OAuth)
-
-**Testes realizados (2025-12-21):**
-- ✅ `initialize` funcionou (DeepWiki e Cloudflare)
-- ✅ `tools/list` funcionou com `Mcp-Session-Id`
-- ✅ Latência do proxy: ~100-200ms overhead (aceitável)
-
-**Comandos de teste (bash):**
-```bash
-# 1. Initialize e captura Session ID
-SESSION_ID=$(curl -s -i -X POST http://localhost:8080/mcp/{user_id}/{server_name} \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"mcpx-test","version":"1.0"}},"id":1}' \
-  | grep "^mcp-session-id:" | cut -d' ' -f2 | tr -d '\r\n')
-
-echo "Session ID: $SESSION_ID"
-
-# 2. tools/list
-curl -s -X POST http://localhost:8080/mcp/{user_id}/{server_name} \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -H "Mcp-Session-Id: $SESSION_ID" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":2}'
-```
+- Allowlist/Blocklist de tools
+- Prefix global (ex: `cf_search_docs`)
+- Validação no tools/call
+- UI completa com chips clicáveis
 
 ---
 
-### Health Check System
-- Background job (5min interval) em `services/health_check.rs`
-- Status machine: healthy/unhealthy/pending_auth/pending_health
-- Countdown timer no frontend
-- `last_health_check` salvo no teste inicial
+### Code Quality Refactoring
+
+**Status:** ✅ **COMPLETO**
+
+- Backend: mensagens centralizadas, SQL constants, OAuth abstraction
+- Frontend: ESLint configurado, constants centralizados
+- Clippy warnings: 23 → 6 | ESLint warnings: 9 → 0
+- 29 testes passando (20 backend + 9 frontend)
+
+---
+
+### MCP Proxy Layer
+
+**Status:** ✅ **VALIDADO**
+
+- Multi-tenant isolation (`/mcp/:user_id/:server_name`)
+- Auth injection (API Key, Bearer, OAuth)
+- Governance filter integrado
+
+---
 
 ### OAuth 2.1 Auto-discovery
-- RFC 8414 (metadata discovery)
-- RFC 7591 (dynamic client registration)
-- PKCE flow completo
-- Tokens encriptados (AES-256-GCM)
-- SDK OAuth no frontend (`lib/mcp/`)
+- RFC 8414 + RFC 7591 + PKCE
+- Tokens AES-256-GCM encriptados
 
-### Server Setup UX
-- `ServerSetupModal.vue` com 4 steps
-- OAuth polling até conexão
-- Opção "Fazer Depois" para skip OAuth
-- Mensagens de erro limpas
-
-### Frontend Improvements
-- Health Check card com countdown
-- Token expiration detection
-- Re-auth flow com polling
+### Health Check System
+- Background job (5min interval)
+- Status machine + countdown timer
 
 ---
 
 ## 📋 A FAZER (PRÓXIMAS PRIORIDADES)
 
-### 1. Auto-refresh OAuth tokens
-- [ ] Implementar `try_refresh_token` em `health_check.rs` (atualmente é TODO)
-- [ ] Usar refresh_token para obter novo access_token quando expirado
+### 1. Virtual Gateways ⭐
+- [ ] Agregar múltiplos servidores em um endpoint
+- [ ] Ex: `/mcp/{user_id}/all-tools`
 
-### 2. Tool Governance (whitelist/blacklist)
-- [ ] UI para configurar whitelist/blacklist de tools
-- [ ] Filtrar tools no proxy antes de retornar ao cliente
-- [ ] Schema já existe: `governance_configs`
+### 2. Multi-provider Auth
+- [ ] Microsoft Entra ID login
+- [ ] GitHub login
+- [ ] Abstração já criada
 
-### 3. Virtual Gateways
-- [ ] Agregar múltiplos servidores em um único endpoint
-- [ ] Ex: `/mcp/{user_id}/all-tools` combina GitHub + Linear + Slack
+### 3. Audit Logging
+- [ ] Registrar requests MCP
+- [ ] Schema existe: `audit_logs`
 
-### 4. Audit Logging
-- [ ] Registrar requests MCP para compliance/analytics
-- [ ] Schema já existe: `audit_logs`
+### 4. API Key Protection
+- [ ] Proteger server com API key
+- [ ] Dashboard para gerar/revogar
 
-### 5. API Key Protection (opcional por server)
-- [ ] Usuário pode proteger server exposto com API key
-- [ ] Gerar/revogar API keys via dashboard
-
-### 6. SSE Streaming real
-- [ ] Atualmente lê toda resposta e devolve
-- [ ] Para respostas grandes, fazer streaming progressivo
-
----
-
-## 🗂️ ESTRUTURA DE ARQUIVOS CHAVE
-
-```
-backend/
-├── src/
-│   ├── main.rs              # Rotas definidas aqui
-│   ├── routes/
-│   │   ├── proxy.rs         # ✅ MCP Proxy (validado)
-│   │   ├── servers.rs       # CRUD servers
-│   │   ├── oauth.rs         # OAuth endpoints
-│   │   └── auth.rs          # User auth
-│   └── services/
-│       ├── health_check.rs  # Background job
-│       └── crypto.rs        # Encryption
-
-frontend/
-├── src/
-│   ├── components/ui/
-│   │   └── ServerSetupModal.vue  # Setup wizard
-│   ├── lib/mcp/                  # OAuth SDK
-│   └── views/dashboard/
-│       ├── ServerDetails.vue     # Health check card
-│       └── ServerNew.vue         # Usa ServerSetupModal
-```
+### 5. Auto-refresh OAuth tokens
+- [ ] Implementar `try_refresh_token`
+- [ ] Usar refresh_token quando expira
 
 ---
 
 ## 🔧 COMANDOS ÚTEIS
 
 ```bash
-# Rebuild backend
-docker compose build backend
+# Rebuild
+docker compose build && docker compose up -d
 
-# Reiniciar tudo
-docker compose up -d
+# Lint
+cd backend && cargo clippy
+cd frontend && npm run lint
 
-# Ver logs backend
-docker logs -f mcpx-backend
-
-# Acessar
-# Frontend: http://localhost:3000
-# Backend API: http://localhost:8080/api
-# MCP Proxy: http://localhost:8080/mcp/{user_id}/{server_name}
+# Testes
+cd backend && cargo test
+cd frontend && npm test
 ```
 
 ---
 
 ## 📚 REFERÊNCIAS
 
-- **MCP Spec Transports:** https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
-- **Session Management:** Mcp-Session-Id header obrigatório após initialize
-- **Accept header:** Deve ser `application/json, text/event-stream`
+- **MCP Spec:** https://modelcontextprotocol.io/specification/2025-11-25
+- **Governance Tests:** `docs/GOVERNANCE_TEST_SCRIPT.md`
