@@ -28,6 +28,14 @@
           <ServerIcon class="w-5 h-5" />
           Servers
         </router-link>
+        <router-link 
+          to="/gateways" 
+          class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-background-hover transition-colors"
+          active-class="!text-white !bg-background-hover"
+        >
+          <RectangleStackIcon class="w-5 h-5" />
+          Gateways
+        </router-link>
       </nav>
 
       <!-- User -->
@@ -70,6 +78,7 @@ import {
   BoltIcon, 
   Squares2X2Icon, 
   ServerIcon, 
+  RectangleStackIcon,
   ArrowRightOnRectangleIcon 
 } from '@heroicons/vue/24/outline'
 
