@@ -172,7 +172,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, nextTick } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import { useGatewaysStore } from '@/stores/gateways'
@@ -232,16 +232,22 @@ const claudeConfig = computed(() => {
 onMounted(async () => {
   await gatewaysStore.fetchGateways()
   await serversStore.fetchServers()
-  // Wait for gateway to be populated
-  await nextTick()
-  if (gateway.value && gateway.value.servers.length > 0) {
-    await loadTools()
-  }
 })
+
+// Watch for gateway becoming available and load tools
+watch(
+  () => gateway.value,
+  async (newGateway) => {
+    if (newGateway && newGateway.servers.length > 0 && tools.value.length === 0 && !loadingTools.value) {
+      await loadTools()
+    }
+  },
+  { immediate: true }
+)
 
 // Watch for servers being added to reload tools
 watch(() => gateway.value?.servers.length, async (newLen, oldLen) => {
-  if (newLen && newLen > 0 && newLen !== oldLen) {
+  if (newLen && newLen > 0 && oldLen !== undefined && newLen !== oldLen) {
     await loadTools()
   }
 })
