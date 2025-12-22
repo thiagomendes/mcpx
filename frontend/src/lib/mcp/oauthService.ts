@@ -35,30 +35,30 @@ export async function startOAuthFlow(
             backendUrl: ''
         },
         async (tokens: OAuthTokens) => {
-            // Send tokens to backend for secure storage
+        
             await storeTokensInBackend(serverName, tokens);
         }
     );
 
     try {
-        // Use SDK to start authorization
-        // SDK signature: auth(provider, { serverUrl, ... })
+    
+    
         const result = await auth(provider, { serverUrl });
 
-        // Cleanup browser storage regardless of outcome
+    
         provider.cleanup();
 
         if (result === 'AUTHORIZED') {
             return { success: true };
         } else if (result === 'REDIRECT') {
-            // User was redirected to authorization server
-            // Callback will be handled by handleOAuthCallback
+        
+        
             return { success: true };
         } else {
             return { success: false, error: 'Authorization was cancelled or failed' };
         }
     } catch (error) {
-        // Cleanup browser storage on error
+    
         provider.cleanup();
 
         console.error('OAuth flow error:', error);
@@ -78,7 +78,7 @@ export async function handleOAuthCallback(
     code: string,
     _state: string  // State is validated by SDK internally
 ): Promise<OAuthResult> {
-    // Get the stored server URL from sessionStorage
+
     const stateJson = sessionStorage.getItem(`mcpx_oauth_state_${serverName}`);
     if (!stateJson) {
         return { success: false, error: 'OAuth state not found' };
@@ -107,14 +107,14 @@ export async function handleOAuthCallback(
             return { success: false, error: 'Could not restore OAuth state' };
         }
 
-        // Exchange code for tokens using SDK
-        // SDK signature: auth(provider, { serverUrl, authorizationCode })
+    
+    
         const result = await auth(provider, {
             serverUrl: savedState.serverUrl,
             authorizationCode: code
         });
 
-        // Cleanup is done automatically in saveTokens(), but call again for safety
+    
         provider.cleanup();
 
         if (result === 'AUTHORIZED') {
@@ -123,7 +123,7 @@ export async function handleOAuthCallback(
             return { success: false, error: 'Token exchange failed' };
         }
     } catch (error) {
-        // Cleanup browser storage on error
+    
         provider.cleanup();
 
         console.error('OAuth callback error:', error);

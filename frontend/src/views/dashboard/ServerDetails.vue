@@ -135,6 +135,9 @@
         </div>
       </div>
 
+      <!-- Tool Governance -->
+      <ToolGovernance :server-name="server.name" :available-tools="testResult?.tools || []" />
+
       <!-- Server Info -->
       <div class="card">
         <h3 class="font-semibold mb-3 flex items-center gap-2">
@@ -173,6 +176,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
+import ToolGovernance from '@/components/ui/ToolGovernance.vue'
 import { useServersStore, type Server, type TestResult } from '@/stores/servers'
 import api from '@/api/client'
 import { startOAuthFlow } from '@/lib/mcp'
@@ -247,7 +251,7 @@ const statusBadgeClass = computed(() => {
 
 const nextHealthCheckCountdown = computed(() => {
   // Trigger reactivity on tick
-  countdownTick.value
+  void countdownTick.value
   
   if (!server.value?.last_health_check) return 'Pending...'
   
@@ -297,26 +301,26 @@ onMounted(async () => {
       const response = await api.get(`/servers/${server.value.name}/oauth/status`)
       oauthStatus.value = response.data
       
-      // Auto-test if OAuth is connected
+  
       if (oauthStatus.value?.connected) {
         await handleTest()
       }
-    } catch (e) {
+    } catch {
       oauthStatus.value = { connected: false, expires_at: null }
     }
   } else {
-    // Non-OAuth servers: auto-test on load
+
     await handleTest()
   }
   
   // Check for OAuth callback success
   if (route.query.oauth === 'success') {
     oauthStatus.value = { connected: true, expires_at: null }
-    // Re-fetch to get real expiry
+
     if (server.value) {
       const response = await api.get(`/servers/${server.value.name}/oauth/status`)
       oauthStatus.value = response.data
-      // Auto-test after OAuth success
+  
       await handleTest()
     }
   }
@@ -339,11 +343,11 @@ async function handleAuthorize() {
   oauthError.value = null
   
   try {
-    // Use SDK OAuth flow (runs entirely in frontend)
+
     const result = await startOAuthFlow(server.value.name, server.value.url)
     
     if (result.success) {
-      // OAuth flow started - poll for completion like in the modal
+  
       const maxAttempts = 60 // 60 seconds max wait
       let attempts = 0
       let oauthComplete = false
@@ -359,16 +363,16 @@ async function handleAuthorize() {
             oauthComplete = true
           }
         } catch {
-          // Keep polling
+          // Ignore OAuth status check errors
         }
       }
       
       if (oauthComplete) {
-        // Re-fetch server to update status
+    
         await serversStore.fetchServers()
         server.value = serversStore.getServerByName(server.value!.name) || null
         
-        // Auto-test connection after OAuth success
+    
         await handleTest()
       } else {
         oauthError.value = 'OAuth flow timeout - popup may have been closed'
@@ -376,7 +380,7 @@ async function handleAuthorize() {
     } else {
       oauthError.value = result.error || 'OAuth authorization failed'
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     oauthError.value = e.message || 'Failed to start OAuth flow'
   } finally {
     authorizing.value = false
@@ -390,7 +394,7 @@ async function handleTest() {
   
   try {
     testResult.value = await serversStore.testServer(server.value.name)
-  } catch (e: any) {
+  } catch (e: unknown) {
     testResult.value = {
       success: false,
       message: e.response?.data || 'Test failed',

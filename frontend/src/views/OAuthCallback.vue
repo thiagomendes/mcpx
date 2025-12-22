@@ -69,14 +69,14 @@ onMounted(async () => {
     
     if (result.success) {
       success.value = true
-      // Close window after short delay
+  
       setTimeout(() => {
         window.close()
       }, 2000)
     } else {
       error.value = result.error || 'Unknown error during token exchange'
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     processing.value = false
     error.value = e.message || 'Failed to complete authorization'
   }

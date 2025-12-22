@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::AppState;
 use crate::routes::auth::{extract_token, validate_token, Claims};
 
-/// Middleware to require authentication
+#[allow(dead_code)]
 pub async fn require_auth(
     State(state): State<Arc<AppState>>,
     request: Request<Body>,
@@ -24,8 +24,8 @@ pub async fn require_auth(
     
     Ok(next.run(request).await)
 }
+#[allow(dead_code)]
 
-/// Extension to add user claims to request - can be used as an extractor
 #[derive(Clone, Debug)]
 pub struct AuthUser {
     pub user_id: uuid::Uuid,
@@ -41,7 +41,6 @@ impl From<Claims> for AuthUser {
     }
 }
 
-/// Implement FromRequestParts so AuthUser can be used as an extractor
 #[async_trait]
 impl FromRequestParts<Arc<AppState>> for AuthUser {
     type Rejection = (StatusCode, String);
@@ -50,10 +49,10 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
         parts: &mut Parts,
         state: &Arc<AppState>,
     ) -> Result<Self, Self::Rejection> {
-        // Extract token from Authorization header
+    
         let token = extract_token(&parts.headers)?;
         
-        // Validate token and get claims
+    
         let claims = validate_token(&token, &state.config.jwt_secret)?;
         
         Ok(AuthUser::from(claims))

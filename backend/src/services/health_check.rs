@@ -16,7 +16,6 @@ use std::time::Duration;
 use tokio::time::interval;
 use uuid::Uuid;
 
-/// Server info for health check
 #[derive(Debug, sqlx::FromRow)]
 struct ServerForHealthCheck {
     id: Uuid,
@@ -26,7 +25,6 @@ struct ServerForHealthCheck {
     status: Option<String>,
 }
 
-/// Starts the background health check job
 pub async fn start_health_check_job(db: Database, encryption_key: String, interval_seconds: u64) {
     tracing::info!("Starting health check job with {}s interval", interval_seconds);
     
@@ -44,9 +42,8 @@ pub async fn start_health_check_job(db: Database, encryption_key: String, interv
     });
 }
 
-/// Run a single health check cycle for all eligible servers
 async fn run_health_check_cycle(db: &Database, encryption_key: &str) -> Result<(), String> {
-    // Get all servers that need health check (exclude pending_auth)
+
     let servers: Vec<ServerForHealthCheck> = sqlx::query_as(
         "SELECT id, user_id, url, auth_type, status FROM servers WHERE status != 'pending_auth' AND enabled = true"
     )
@@ -72,25 +69,24 @@ async fn run_health_check_cycle(db: &Database, encryption_key: &str) -> Result<(
     Ok(())
 }
 
-/// Check a single server and update its status
 async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encryption_key: &str) -> Result<(), String> {
-    // Get OAuth token if needed
+
     let access_token: Option<String> = if server.auth_type.as_deref() == Some("oauth_auto") {
         get_access_token(db, server.id, server.user_id, encryption_key).await?
     } else {
         None
     };
     
-    // Test connection using rmcp SDK
+
     let result = test_mcp_connection(&server.url, access_token.as_deref()).await;
     
     match result {
         Ok(_) => {
-            // Update to healthy
+        
             sqlx::query(
                 "UPDATE servers SET status = 'healthy', last_health_check = NOW(), health_error = NULL WHERE id = $1"
             )
-            .bind(&server.id)
+            .bind(server.id)
             .execute(&db.pool)
             .await
             .map_err(|e| format!("Failed to update server status: {}", e))?;
@@ -98,12 +94,12 @@ async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encry
             Ok(())
         }
         Err(e) => {
-            // Check if it's an auth error
+        
             let (new_status, error_msg) = if e.contains("invalid_token") || e.contains("Token is not active") {
-                // Try to refresh token
+            
                 match try_refresh_token(db, server.id, server.user_id, encryption_key).await {
                     Ok(new_token) => {
-                        // Retry with new token
+                    
                         match test_mcp_connection(&server.url, Some(&new_token)).await {
                             Ok(_) => {
                                 ("healthy".to_string(), None)
@@ -114,7 +110,7 @@ async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encry
                         }
                     }
                     Err(_) => {
-                        // Refresh failed, set to pending_auth
+                    
                         ("pending_auth".to_string(), Some("OAuth token expired and refresh failed".to_string()))
                     }
                 }
@@ -122,13 +118,13 @@ async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encry
                 ("unhealthy".to_string(), Some(e))
             };
             
-            // Update status
+        
             sqlx::query(
                 "UPDATE servers SET status = $1, last_health_check = NOW(), health_error = $2 WHERE id = $3"
             )
             .bind(&new_status)
             .bind(&error_msg)
-            .bind(&server.id)
+            .bind(server.id)
             .execute(&db.pool)
             .await
             .map_err(|e| format!("Failed to update server status: {}", e))?;
@@ -142,22 +138,21 @@ async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encry
     }
 }
 
-/// Get decrypted access token for a server
 async fn get_access_token(db: &Database, server_id: Uuid, user_id: Uuid, encryption_key: &str) -> Result<Option<String>, String> {
     let row: Option<(String, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
         "SELECT access_token_encrypted, expires_at FROM oauth_tokens WHERE server_id = $1 AND user_id = $2"
     )
-    .bind(&server_id)
-    .bind(&user_id)
+    .bind(server_id)
+    .bind(user_id)
     .fetch_optional(&db.pool)
     .await
     .map_err(|e| format!("Failed to fetch token: {}", e))?;
     
     if let Some((encrypted, expires_at)) = row {
-        // Check if expired
+    
         if let Some(exp) = expires_at {
             if exp < Utc::now() {
-                return Ok(None); // Token expired, will trigger refresh
+                return Ok(None);
             }
         }
         
@@ -171,14 +166,13 @@ async fn get_access_token(db: &Database, server_id: Uuid, user_id: Uuid, encrypt
     }
 }
 
-/// Try to refresh an expired OAuth token
 async fn try_refresh_token(db: &Database, server_id: Uuid, user_id: Uuid, encryption_key: &str) -> Result<String, String> {
-    // Get refresh token
+
     let row: Option<(Option<String>,)> = sqlx::query_as(
         "SELECT refresh_token_encrypted FROM oauth_tokens WHERE server_id = $1 AND user_id = $2"
     )
-    .bind(&server_id)
-    .bind(&user_id)
+    .bind(server_id)
+    .bind(user_id)
     .fetch_optional(&db.pool)
     .await
     .map_err(|e| format!("Failed to fetch refresh token: {}", e))?;
@@ -191,15 +185,14 @@ async fn try_refresh_token(db: &Database, server_id: Uuid, user_id: Uuid, encryp
     let _refresh_token = crypto::decrypt(&refresh_encrypted, &key)
         .map_err(|e| format!("Failed to decrypt refresh token: {}", e))?;
     
-    // TODO: Implement OAuth token refresh using the server's token endpoint
-    // This requires knowing the token_url for the server
-    // For now, return error to trigger pending_auth status
+
+
+
     Err("Token refresh not implemented yet - user must re-authorize".to_string())
 }
 
-/// Test MCP connection using rmcp SDK
 async fn test_mcp_connection(server_url: &str, access_token: Option<&str>) -> Result<(), String> {
-    // Build transport config with optional auth header
+
     let config = if let Some(token) = access_token {
         StreamableHttpClientTransportConfig::with_uri(server_url)
             .auth_header(token)
@@ -209,7 +202,7 @@ async fn test_mcp_connection(server_url: &str, access_token: Option<&str>) -> Re
 
     let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
 
-    // Create client info (matching servers.rs pattern)
+
     let client_info = ClientInfo {
         protocol_version: Default::default(),
         capabilities: ClientCapabilities::default(),
@@ -222,15 +215,15 @@ async fn test_mcp_connection(server_url: &str, access_token: Option<&str>) -> Re
         },
     };
 
-    // Connect and initialize
+
     let client: RunningService<rmcp::RoleClient, _> = client_info.serve(transport).await
         .map_err(|e| format!("Connection failed: {:?}", e))?;
 
-    // Try to list tools to verify connection
+
     let _tools_result = client.list_tools(None).await
         .map_err(|e| format!("Failed to list tools: {:?}", e))?;
 
-    // Gracefully close
+
     let _ = client.cancel().await;
 
     Ok(())

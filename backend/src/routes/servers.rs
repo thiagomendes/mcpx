@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use crate::messages::error;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -10,7 +11,6 @@ use crate::AppState;
 use crate::models::server::{Server, ServerResponse, CreateServerRequest, UpdateServerRequest};
 use crate::routes::auth::{extract_token, validate_token};
 
-// rmcp SDK imports for MCP client
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo, Implementation},
@@ -18,7 +18,40 @@ use rmcp::{
     service::RunningService,
 };
 
-// Helper: Get user_id from headers
+const SQL_LIST_SERVERS: &str = "SELECT * FROM servers WHERE user_id = $1 ORDER BY created_at DESC";
+
+const SQL_INSERT_SERVER: &str = r#"
+    INSERT INTO servers (user_id, name, url, transport, auth_type, status, oauth_client_id, oauth_authorization_url, oauth_token_url, oauth_scopes, oauth_use_pkce)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    RETURNING *
+"#;
+
+const SQL_INSERT_CREDENTIAL: &str = "INSERT INTO credentials (server_id, credential_type, encrypted_value, name) VALUES ($1, $2, $3, $4)";
+
+const SQL_SELECT_SERVER_BY_NAME: &str = "SELECT * FROM servers WHERE user_id = $1 AND name = $2";
+
+const SQL_UPDATE_SERVER: &str = r#"
+    UPDATE servers SET
+        name = COALESCE($3, name),
+        url = COALESCE($4, url),
+        transport = COALESCE($5, transport),
+        enabled = COALESCE($6, enabled),
+        updated_at = NOW()
+    WHERE user_id = $1 AND name = $2
+    RETURNING *
+"#;
+
+const SQL_DELETE_SERVER: &str = "DELETE FROM servers WHERE user_id = $1 AND name = $2";
+
+const SQL_SELECT_OAUTH_TOKEN: &str = "SELECT access_token_encrypted FROM oauth_tokens WHERE server_id = $1 AND user_id = $2";
+
+const SQL_UPDATE_SERVER_STATUS: &str = "UPDATE servers SET status = 'healthy', last_health_check = NOW(), health_error = NULL, updated_at = NOW() WHERE id = $1";
+
+const SQL_UPDATE_SERVER_ERROR: &str = "UPDATE servers SET status = 'unhealthy', health_error = $1, updated_at = NOW() WHERE id = $2";
+
+const ERR_FAILED_TO_STORE_CREDENTIAL: &str = "Failed to store credential";
+
+
 async fn get_user_id(
     headers: &axum::http::HeaderMap,
     state: &AppState,
@@ -26,23 +59,20 @@ async fn get_user_id(
     let token = extract_token(headers)?;
     let claims = validate_token(&token, &state.config.jwt_secret)?;
     Uuid::parse_str(&claims.sub)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid token".to_string()))
+        .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))
 }
 
-// GET /api/servers - List all servers for current user
 pub async fn list_servers(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Vec<ServerResponse>>, (StatusCode, String)> {
     let user_id = get_user_id(&headers, &state).await?;
 
-    let servers = sqlx::query_as::<_, Server>(
-        "SELECT * FROM servers WHERE user_id = $1 ORDER BY created_at DESC"
-    )
+    let servers = sqlx::query_as::<_, Server>(SQL_LIST_SERVERS)
     .bind(user_id)
     .fetch_all(&state.db.pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
     let base_url = &state.config.base_url;
     let responses: Vec<ServerResponse> = servers
@@ -53,7 +83,6 @@ pub async fn list_servers(
     Ok(Json(responses))
 }
 
-// POST /api/servers - Create new server
 pub async fn create_server(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -61,26 +90,20 @@ pub async fn create_server(
 ) -> Result<(StatusCode, Json<ServerResponse>), (StatusCode, String)> {
     let user_id = get_user_id(&headers, &state).await?;
 
-    // Validate name (alphanumeric, hyphens, underscores)
+
     if !payload.name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-        return Err((StatusCode::BAD_REQUEST, "Invalid server name. Use only letters, numbers, hyphens, and underscores.".to_string()));
+        return Err((StatusCode::BAD_REQUEST, error::INVALID_SERVER_NAME.to_string()));
     }
 
-    // Insert server with auth fields
-    // Set initial status: pending_auth for oauth_auto, pending_health for others (awaits first health check)
+
+
     let initial_status = if payload.auth_type == "oauth_auto" {
         "pending_auth"
     } else {
         "pending_health"
     };
 
-    let server = sqlx::query_as::<_, Server>(
-        r#"
-        INSERT INTO servers (user_id, name, url, transport, auth_type, status, oauth_client_id, oauth_authorization_url, oauth_token_url, oauth_scopes, oauth_use_pkce)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        RETURNING *
-        "#,
-    )
+    let server = sqlx::query_as::<_, Server>(SQL_INSERT_SERVER)
     .bind(user_id)
     .bind(&payload.name)
     .bind(&payload.url)
@@ -96,27 +119,27 @@ pub async fn create_server(
     .await
     .map_err(|e| {
         if e.to_string().contains("duplicate key") {
-            (StatusCode::CONFLICT, "Server with this name already exists".to_string())
+            (StatusCode::CONFLICT, error::SERVER_EXISTS.to_string())
         } else {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e))
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e))
         }
     })?;
 
-    // Store encrypted credentials if provided
+
     if let Some(ref api_key) = payload.api_key {
         if !api_key.is_empty() {
             let key = crate::services::crypto::derive_key(&state.config.encryption_key);
             let encrypted = crate::services::crypto::encrypt(api_key, &key)
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
             
-            sqlx::query(
-                "INSERT INTO credentials (server_id, credential_type, encrypted_value, name) VALUES ($1, 'api_key', $2, 'API Key')"
-            )
+            sqlx::query(SQL_INSERT_CREDENTIAL)
             .bind(server.id)
+            .bind("api_key")
             .bind(&encrypted)
+            .bind("API Key")
             .execute(&state.db.pool)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to store credential: {}", e)))?;
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", ERR_FAILED_TO_STORE_CREDENTIAL, e)))?;
         }
     }
 
@@ -126,14 +149,14 @@ pub async fn create_server(
             let encrypted = crate::services::crypto::encrypt(bearer_token, &key)
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
             
-            sqlx::query(
-                "INSERT INTO credentials (server_id, credential_type, encrypted_value, name) VALUES ($1, 'bearer', $2, 'Bearer Token')"
-            )
+            sqlx::query(SQL_INSERT_CREDENTIAL)
             .bind(server.id)
+            .bind("bearer")
             .bind(&encrypted)
+            .bind("Bearer Token")
             .execute(&state.db.pool)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to store credential: {}", e)))?;
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", ERR_FAILED_TO_STORE_CREDENTIAL, e)))?;
         }
     }
 
@@ -143,14 +166,14 @@ pub async fn create_server(
             let encrypted = crate::services::crypto::encrypt(client_secret, &key)
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
             
-            sqlx::query(
-                "INSERT INTO credentials (server_id, credential_type, encrypted_value, name) VALUES ($1, 'oauth_client_secret', $2, 'OAuth Client Secret')"
-            )
+            sqlx::query(SQL_INSERT_CREDENTIAL)
             .bind(server.id)
+            .bind("oauth_client_secret")
             .bind(&encrypted)
+            .bind("OAuth Client Secret")
             .execute(&state.db.pool)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to store credential: {}", e)))?;
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", ERR_FAILED_TO_STORE_CREDENTIAL, e)))?;
         }
     }
 
@@ -158,7 +181,6 @@ pub async fn create_server(
     Ok((StatusCode::CREATED, Json(ServerResponse::from_server(server, user_id, base_url))))
 }
 
-// GET /api/servers/:name - Get server by name
 pub async fn get_server(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -166,21 +188,18 @@ pub async fn get_server(
 ) -> Result<Json<ServerResponse>, (StatusCode, String)> {
     let user_id = get_user_id(&headers, &state).await?;
 
-    let server = sqlx::query_as::<_, Server>(
-        "SELECT * FROM servers WHERE user_id = $1 AND name = $2"
-    )
+    let server = sqlx::query_as::<_, Server>(SQL_SELECT_SERVER_BY_NAME)
     .bind(user_id)
     .bind(&name)
     .fetch_optional(&state.db.pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
-    .ok_or((StatusCode::NOT_FOUND, "Server not found".to_string()))?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+    .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let base_url = &state.config.base_url;
     Ok(Json(ServerResponse::from_server(server, user_id, base_url)))
 }
 
-// PUT /api/servers/:name - Update server
 pub async fn update_server(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -189,35 +208,23 @@ pub async fn update_server(
 ) -> Result<Json<ServerResponse>, (StatusCode, String)> {
     let user_id = get_user_id(&headers, &state).await?;
 
-    // Build dynamic update query
-    let server = sqlx::query_as::<_, Server>(
-        r#"
-        UPDATE servers SET
-            name = COALESCE($3, name),
-            url = COALESCE($4, url),
-            transport = COALESCE($5, transport),
-            enabled = COALESCE($6, enabled),
-            updated_at = NOW()
-        WHERE user_id = $1 AND name = $2
-        RETURNING *
-        "#,
-    )
+
+    let server = sqlx::query_as::<_, Server>(SQL_UPDATE_SERVER)
     .bind(user_id)
     .bind(&name)
     .bind(&payload.name)
     .bind(&payload.url)
     .bind(&payload.transport)
-    .bind(&payload.enabled)
+    .bind(payload.enabled)
     .fetch_optional(&state.db.pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
-    .ok_or((StatusCode::NOT_FOUND, "Server not found".to_string()))?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+    .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let base_url = &state.config.base_url;
     Ok(Json(ServerResponse::from_server(server, user_id, base_url)))
 }
 
-// DELETE /api/servers/:name - Delete server
 pub async fn delete_server(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -225,21 +232,20 @@ pub async fn delete_server(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let user_id = get_user_id(&headers, &state).await?;
 
-    let result = sqlx::query("DELETE FROM servers WHERE user_id = $1 AND name = $2")
+    let result = sqlx::query(SQL_DELETE_SERVER)
         .bind(user_id)
         .bind(&name)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, "Server not found".to_string()));
+        return Err((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()));
     }
 
     Ok(StatusCode::NO_CONTENT)
 }
 
-// POST /api/servers/:name/test - Test server connectivity using rmcp SDK
 pub async fn test_server(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -247,27 +253,23 @@ pub async fn test_server(
 ) -> Result<Json<TestResult>, (StatusCode, String)> {
     let user_id = get_user_id(&headers, &state).await?;
 
-    let server = sqlx::query_as::<_, Server>(
-        "SELECT * FROM servers WHERE user_id = $1 AND name = $2"
-    )
+    let server = sqlx::query_as::<_, Server>(SQL_SELECT_SERVER_BY_NAME)
     .bind(user_id)
     .bind(&name)
     .fetch_optional(&state.db.pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
-    .ok_or((StatusCode::NOT_FOUND, "Server not found".to_string()))?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+    .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
-    // Get OAuth token if this is an oauth_auto server
+
     let access_token: Option<String> = if server.auth_type.as_deref() == Some("oauth_auto") {
         tracing::info!("Server {} requires OAuth, fetching token", name);
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT access_token_encrypted FROM oauth_tokens WHERE server_id = $1 AND user_id = $2"
-        )
-        .bind(&server.id)
-        .bind(&user_id)
+        let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_OAUTH_TOKEN)
+        .bind(server.id)
+        .bind(user_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
         if let Some((encrypted,)) = row {
             tracing::info!("Found encrypted token, decrypting...");
@@ -293,15 +295,15 @@ pub async fn test_server(
 
     let start = std::time::Instant::now();
     
-    // Use rmcp SDK for proper MCP protocol handling
+
     let result = test_mcp_connection(&server.url, access_token.as_deref()).await;
     let latency_ms = start.elapsed().as_millis() as u32;
     
     match result {
         Ok(tools) => {
-            // Update server status to healthy and record successful health check
-            let _ = sqlx::query("UPDATE servers SET status = 'healthy', last_health_check = NOW(), health_error = NULL, updated_at = NOW() WHERE id = $1")
-                .bind(&server.id)
+        
+            let _ = sqlx::query(SQL_UPDATE_SERVER_STATUS)
+                .bind(server.id)
                 .execute(&state.db.pool)
                 .await;
             
@@ -323,9 +325,8 @@ pub async fn test_server(
     }
 }
 
-/// Test MCP connection using rmcp SDK and return list of tools
 async fn test_mcp_connection(server_url: &str, access_token: Option<&str>) -> Result<Vec<ToolInfo>, String> {
-    // Build transport config with optional auth header
+
     let config = if let Some(token) = access_token {
         StreamableHttpClientTransportConfig::with_uri(server_url)
             .auth_header(token)
@@ -335,7 +336,7 @@ async fn test_mcp_connection(server_url: &str, access_token: Option<&str>) -> Re
 
     let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
 
-    // Create client info
+
     let client_info = ClientInfo {
         protocol_version: Default::default(),
         capabilities: ClientCapabilities::default(),
@@ -348,18 +349,18 @@ async fn test_mcp_connection(server_url: &str, access_token: Option<&str>) -> Re
         },
     };
 
-    // Connect and initialize - explicit type for peer info
+
     let client: RunningService<rmcp::RoleClient, _> = client_info.serve(transport).await
         .map_err(|e| format!("Failed to connect: {:?}", e))?;
 
-    // List tools
+
     let tools_result = client.list_tools(None).await
         .map_err(|e| format!("Failed to list tools: {:?}", e))?;
 
-    // Cancel/cleanup the client
+
     let _ = client.cancel().await;
 
-    // Convert to our ToolInfo type
+
     let tools: Vec<ToolInfo> = tools_result.tools.into_iter().map(|t| ToolInfo {
         name: t.name.to_string(),
         description: t.description.map(|d| d.into()),
