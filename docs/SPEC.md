@@ -523,6 +523,49 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX idx_audit_logs_server_id ON audit_logs(server_id);
 ```
 
+### 007_request_metrics.sql (TimescaleDB)
+
+> **Requires:** TimescaleDB extension enabled in PostgreSQL
+
+```sql
+-- Enable TimescaleDB
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+-- Request metrics hypertable (time-series data)
+CREATE TABLE request_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    user_id UUID NOT NULL,
+    target_type VARCHAR(10) NOT NULL,  -- 'server' or 'gateway'
+    target_id UUID NOT NULL,
+    target_name VARCHAR(255) NOT NULL,
+    method VARCHAR(50),
+    latency_ms INT,
+    success BOOLEAN NOT NULL DEFAULT true
+);
+
+-- Convert to hypertable (auto-partitioned by time)
+SELECT create_hypertable('request_metrics', 'time');
+
+CREATE INDEX idx_metrics_user_time ON request_metrics (user_id, time DESC);
+CREATE INDEX idx_metrics_target_time ON request_metrics (target_id, time DESC);
+
+-- Retention policy: 90 days for raw data
+SELECT add_retention_policy('request_metrics', INTERVAL '90 days');
+
+-- Continuous aggregate: hourly stats (auto-updated every hour)
+CREATE MATERIALIZED VIEW request_metrics_hourly
+WITH (timescaledb.continuous) AS
+SELECT 
+    time_bucket('1 hour', time) AS bucket,
+    user_id, target_type, target_id, target_name,
+    COUNT(*) AS total,
+    COUNT(*) FILTER (WHERE success) AS success_count,
+    AVG(latency_ms)::INT AS avg_latency_ms
+FROM request_metrics
+GROUP BY bucket, user_id, target_type, target_id, target_name
+WITH NO DATA;
+```
+
 ---
 
 # API REFERENCE
@@ -3068,6 +3111,75 @@ async fn main() {
    - Implement users table migration
    - Setup Google OAuth callback
    - Create first API endpoint (GET /auth/me)
+
+---
+
+# OBSERVABILITY PLATFORM
+
+> **Technology:** TimescaleDB (PostgreSQL extension for time-series data)
+
+## Overview
+
+MCPX includes a comprehensive observability platform for monitoring, logging, and auditing all MCP proxy activity.
+
+```mermaid
+flowchart LR
+    subgraph "Data Collection"
+        Proxy[MCP Proxy] -->|record| Metrics[(request_metrics)]
+        Proxy -->|log| Logs[(request_logs)]
+        API[API Routes] -->|audit| Audit[(audit_events)]
+    end
+    
+    subgraph "TimescaleDB"
+        Metrics -->|aggregate| Hourly[Hourly Stats]
+        Metrics -->|aggregate| Daily[Daily Stats]
+    end
+    
+    subgraph "Consumption"
+        Hourly --> Dashboard[Dashboard]
+        Daily --> Analytics[Analytics]
+        Audit --> Trail[Audit Trail]
+    end
+```
+
+## Phase 1: Esta Entrega
+
+| Feature | Escopo | Hypertable | Retention |
+|---------|--------|------------|-----------|
+| **Request Metrics** | Completo | `request_metrics` | 90 days |
+| **Server Logs** | Schema only | `request_logs` | 30 days |
+| **Audit Trail** | Schema only | `audit_events` | 365 days |
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/metrics/today` | Today's request count by target type |
+| `GET` | `/api/metrics/hourly?hours=24` | Hourly breakdown with latency |
+
+### Response Examples
+
+```json
+// GET /api/metrics/today
+{
+  "servers": 142,
+  "gateways": 58
+}
+
+// GET /api/metrics/hourly?hours=24
+[
+  { "bucket": "2024-01-15T10:00:00Z", "total": 23, "avg_latency_ms": 145 },
+  { "bucket": "2024-01-15T11:00:00Z", "total": 31, "avg_latency_ms": 132 }
+]
+```
+
+## Phase 2: Próxima Entrega
+
+| Feature | Description |
+|---------|-------------|
+| **Analytics Dashboard** | Charts, top tools, trends visualization |
+| **Rate Limiting** | Time-window counters, blocking middleware |
+| **Alerting** | Error spike detection, notifications |
 
 ---
 

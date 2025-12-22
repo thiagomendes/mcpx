@@ -1,22 +1,51 @@
 # MCPX - Estado do Projeto e Próximos Passos
 
-**Última atualização:** 2025-12-22 17:20
-**Branch:** feature/virtual-gateways
+**Última atualização:** 2025-12-22 19:30
+**Branch:** feature/request-metrics
+
+---
+
+## 🚧 EM DESENVOLVIMENTO
+
+### Observability Platform (TimescaleDB)
+
+**Status:** 🔄 **EM ANDAMENTO**
+
+**Estratégia:** TimescaleDB (extensão PostgreSQL para time-series)
+
+#### Phase 1: Esta Entrega
+
+| Feature | Escopo | Status |
+|---------|--------|--------|
+| **Request Metrics** | Completo (migration + service + API + dashboard) | 🔄 |
+| **Server Logs** | Schema only (hypertable) | ⏳ |
+| **Audit Trail** | Schema only (hypertable) | ⏳ |
+
+**Checklist:**
+- [/] Migration com hypertables e continuous aggregates
+- [ ] Serviço de métricas (`services/metrics.rs`)
+- [ ] Integração no proxy.rs (timing + record)
+- [ ] API routes (`/api/metrics/today`, `/api/metrics/hourly`)
+- [ ] Dashboard com contadores reais
+- [ ] Testes unitários
+
+#### Phase 2: Próxima Entrega
+
+| Feature | Descrição |
+|---------|-----------|
+| **Analytics Dashboard** | Gráficos, top tools, tendências |
+| **Rate Limiting** | Contador por janela, middleware |
+| **Alerting** | Picos de erro, notificações |
+
+**Benefícios da abordagem:**
+- Particionamento automático por tempo
+- Retenção configurável (90 dias raw, 1 ano aggregates)
+- Continuous aggregates para performance
+- Mesmo PostgreSQL, sem nova infraestrutura
 
 ---
 
 ## ✅ IMPLEMENTADO E FUNCIONANDO
-
-### Tool Governance (`/servers/:name/governance`)
-
-**Status:** ✅ **VALIDADO** - 8 casos de teste passaram!
-
-- Allowlist/Blocklist de tools
-- Prefix global (ex: `cf_search_docs`)
-- Validação no tools/call
-- UI completa com chips clicáveis
-
----
 
 ### Virtual Gateways
 
@@ -26,7 +55,19 @@
 - Gateway CRUD (create, read, update, delete)
 - Proxy routing com governance prefix
 - UI: lista, detalhes, gerenciamento de servidores
+- Dashboard com seção dedicada
 - 8 testes unitários (frontend)
+
+---
+
+### Tool Governance (`/servers/:name/governance`)
+
+**Status:** ✅ **VALIDADO** - 8 casos de teste passaram!
+
+- Allowlist/Blocklist de tools
+- Prefix global (ex: `cf_search_docs`)
+- Validação no tools/call
+- UI completa com chips clicáveis
 
 ---
 
@@ -61,22 +102,18 @@
 
 ---
 
-## 📋 A FAZER (PRÓXIMAS PRIORIDADES)
+## 📋 A FAZER (FUTURO)
 
-### 1. Multi-provider Auth ⭐
+### Multi-provider Auth
 - [ ] Microsoft Entra ID login
 - [ ] GitHub login
 - [ ] Abstração já criada
 
-### 3. Audit Logging
-- [ ] Registrar requests MCP
-- [ ] Schema existe: `audit_logs`
-
-### 4. API Key Protection
+### API Key Protection
 - [ ] Proteger server com API key
 - [ ] Dashboard para gerar/revogar
 
-### 5. Auto-refresh OAuth tokens
+### Auto-refresh OAuth tokens
 - [ ] Implementar `try_refresh_token`
 - [ ] Usar refresh_token quando expira
 
