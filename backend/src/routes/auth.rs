@@ -198,3 +198,17 @@ pub fn validate_token(token: &str, secret: &str) -> Result<Claims, (StatusCode, 
     .map(|data| data.claims)
     .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{}: {}", error::INVALID_TOKEN, e)))
 }
+
+pub fn is_dev_mode() -> bool {
+    std::env::var("DEV_MODE").map(|v| v == "true" || v == "1").unwrap_or(false)
+}
+
+pub fn get_dev_user_id() -> Option<Uuid> {
+    if is_dev_mode() {
+        std::env::var("DEV_USER_ID")
+            .ok()
+            .and_then(|id| Uuid::parse_str(&id).ok())
+    } else {
+        None
+    }
+}

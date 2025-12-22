@@ -8,7 +8,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::routes::auth::{extract_token, validate_token};
+use crate::routes::auth::{extract_token, validate_token, get_dev_user_id};
 use crate::messages::error;
 
 const SQL_SELECT_GATEWAYS: &str = r#"
@@ -122,6 +122,9 @@ async fn get_user_id(
     headers: &axum::http::HeaderMap,
     state: &AppState,
 ) -> Result<Uuid, (StatusCode, String)> {
+    if let Some(dev_user_id) = get_dev_user_id() {
+        return Ok(dev_user_id);
+    }
     let token = extract_token(headers)?;
     let claims = validate_token(&token, &state.config.jwt_secret)?;
     Uuid::parse_str(&claims.sub)
