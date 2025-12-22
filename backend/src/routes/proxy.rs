@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::services::crypto;
+use crate::services::mcp_client;
 use crate::messages::error;
+
 
 const SQL_SELECT_SERVER: &str = "SELECT id, user_id, name, url, transport, auth_type, status FROM servers WHERE name = $1 AND user_id = $2";
 const SQL_SELECT_GOVERNANCE: &str = "SELECT allowed_tools, denied_tools, tool_prefix FROM governance_configs WHERE server_id = $1";
@@ -230,50 +232,55 @@ async fn handle_gateway_tools_list(
     state: &AppState,
     _gateway: &GatewayRow,
     servers: &[ServerRow],
-    headers: HeaderMap,
-    body: Vec<u8>,
+    _headers: HeaderMap,
+    _body: Vec<u8>,
 ) -> Result<Response, (StatusCode, String)> {
-    let mut all_tools: Vec<McpTool> = Vec::new();
-    let mut last_response_id: Option<serde_json::Value> = None;
+    #[derive(Debug, Clone, Serialize)]
+    struct AggregatedTool {
+        name: String,
+        description: Option<String>,
+        #[serde(rename = "inputSchema")]
+        input_schema: serde_json::Value,
+    }
+    
+    let mut all_tools: Vec<AggregatedTool> = Vec::new();
     
     for server in servers {
         let governance = get_governance_config(state, server.id).await
             .unwrap_or_default();
         
-        let auth_headers = build_auth_headers(state, server).await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
+        let access_token = get_oauth_token(state, server).await.ok().flatten();
         
-        let response = forward_request(&server.url, headers.clone(), auth_headers, body.clone()).await
-            .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to list tools from {}: {}", server.name, e)))?;
+        let tools = mcp_client::list_tools_from_server(&server.url, access_token.as_deref()).await;
         
-        let body_bytes = axum::body::to_bytes(response.into_body(), 10 * 1024 * 1024)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read response: {}", e)))?;
-        
-        let body_str = String::from_utf8_lossy(&body_bytes);
-        
-        for line in body_str.lines() {
-            if let Some(data) = line.strip_prefix("data: ") {
-                if let Ok(parsed) = serde_json::from_str::<McpToolsListResponse>(data) {
-                    if let Some(result) = parsed.result {
-                        for mut tool in result.tools {
-                            let filtered_name = governance.add_prefix(&tool.name);
-                            let prefixed_name = format!("{}_{}", server.name, filtered_name);
-                            tool.name = prefixed_name;
-                            if governance.is_tool_allowed(&tool.name.replace(&format!("{}_", server.name), "")) {
-                                all_tools.push(tool);
-                            }
-                        }
+        match tools {
+            Ok(tools) => {
+                for tool in tools {
+                    let original_name = tool.name.clone();
+                    
+                    if !governance.is_tool_allowed(&original_name) {
+                        continue;
                     }
-                    last_response_id = Some(parsed.id);
+                    
+                    let prefixed_name = governance.add_prefix(&original_name);
+                    let gateway_prefixed_name = format!("{}_{}", server.name, prefixed_name);
+                    
+                    all_tools.push(AggregatedTool {
+                        name: gateway_prefixed_name,
+                        description: tool.description,
+                        input_schema: tool.input_schema,
+                    });
                 }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to list tools from {}: {}", server.name, e);
             }
         }
     }
     
     let response_json = serde_json::json!({
         "jsonrpc": "2.0",
-        "id": last_response_id.unwrap_or(serde_json::json!(1)),
+        "id": 1,
         "result": {
             "tools": all_tools
         }
@@ -287,6 +294,7 @@ async fn handle_gateway_tools_list(
         .body(Body::from(sse_body))
         .unwrap())
 }
+
 
 async fn handle_gateway_tools_call(
     state: &AppState,
