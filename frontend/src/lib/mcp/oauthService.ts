@@ -7,7 +7,9 @@
  * SECURITY: All browser storage is cleaned up after OAuth completes.
  */
 
+// @ts-expect-error - SDK subpath exports work at runtime but not in TypeScript
 import { auth } from '@modelcontextprotocol/sdk/client/auth';
+// @ts-expect-error - SDK subpath exports work at runtime but not in TypeScript
 import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth';
 import { McpxOAuthProvider } from './oauthProvider';
 import api from '@/api/client';
@@ -35,30 +37,30 @@ export async function startOAuthFlow(
             backendUrl: ''
         },
         async (tokens: OAuthTokens) => {
-        
+
             await storeTokensInBackend(serverName, tokens);
         }
     );
 
     try {
-    
-    
+
+
         const result = await auth(provider, { serverUrl });
 
-    
+
         provider.cleanup();
 
         if (result === 'AUTHORIZED') {
             return { success: true };
         } else if (result === 'REDIRECT') {
-        
-        
+
+
             return { success: true };
         } else {
             return { success: false, error: 'Authorization was cancelled or failed' };
         }
     } catch (error) {
-    
+
         provider.cleanup();
 
         console.error('OAuth flow error:', error);
@@ -107,14 +109,14 @@ export async function handleOAuthCallback(
             return { success: false, error: 'Could not restore OAuth state' };
         }
 
-    
-    
+
+
         const result = await auth(provider, {
             serverUrl: savedState.serverUrl,
             authorizationCode: code
         });
 
-    
+
         provider.cleanup();
 
         if (result === 'AUTHORIZED') {
@@ -123,7 +125,7 @@ export async function handleOAuthCallback(
             return { success: false, error: 'Token exchange failed' };
         }
     } catch (error) {
-    
+
         provider.cleanup();
 
         console.error('OAuth callback error:', error);

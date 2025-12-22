@@ -10,7 +10,7 @@ export interface Server {
     transport: string
     enabled: boolean
     auth_type: string
-    status: 'healthy' | 'unhealthy' | 'pending_auth' | 'pending_health' | 'disabled'
+    status: 'healthy' | 'unhealthy' | 'pending_auth' | 'pending_health' | 'disabled' | 'active'
     last_health_check: string | null
     health_error: string | null
     proxy_url: string
@@ -43,8 +43,8 @@ export const useServersStore = defineStore('servers', () => {
             const response = await api.get('/servers')
             servers.value = response.data
         } catch (e: unknown) {
-    const _err = e as { response?: { data?: { message?: string } } }
-            error.value = e.response?.data?.message || ERROR_MESSAGES.FETCH_SERVERS_FAILED
+            const err = e as { response?: { data?: { message?: string } } }
+            error.value = err.response?.data?.message || ERROR_MESSAGES.FETCH_SERVERS_FAILED
         } finally {
             loading.value = false
         }

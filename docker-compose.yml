@@ -47,6 +47,8 @@ services:
       BASE_URL: http://localhost:8080
       BACKEND_PORT: 8080
       RUST_LOG: info
+      DEV_MODE: ${DEV_MODE:-false}
+      DEV_USER_ID: ${DEV_USER_ID:-}
     depends_on:
       postgres:
         condition: service_healthy

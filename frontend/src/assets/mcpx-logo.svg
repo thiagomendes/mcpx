@@ -1,0 +1,17 @@
+<svg viewBox="0 0 260 260" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B5CF6"/>
+      <stop offset="100%" style="stop-color:#06B6D4"/>
+    </linearGradient>
+  </defs>
+  <!-- X behind - white color -->
+  <path d="M10 10L250 250" stroke="white" stroke-width="28" stroke-linecap="round" fill="none"/>
+  <path d="M250 10L10 250" stroke="white" stroke-width="28" stroke-linecap="round" fill="none"/>
+  <!-- Rounded square background -->
+  <rect x="40" y="40" width="180" height="180" rx="24" fill="url(#grad)"/>
+  <!-- MCP Protocol logo in white -->
+  <path d="M63.5996 125.2532L126.2021 62.6507C134.8457 54.0071 148.86 54.0071 157.503 62.6507C166.147 71.2942 166.147 85.3083 157.503 93.9519L110.2254 141.23" stroke="white" stroke-width="11.0667" stroke-linecap="round" fill="none"/>
+  <path d="M110.8789 140.578L157.504 93.952C166.148 85.3083 180.163 85.3083 188.806 93.952L189.132 94.278C197.776 102.9216 197.776 116.9357 189.132 125.5792L132.5139 182.198C129.6327 185.079 129.6327 189.75 132.5139 192.631L144.14 204.257" stroke="white" stroke-width="11.0667" stroke-linecap="round" fill="none"/>
+  <path d="M141.853 78.3013L95.553 124.6011C86.9094 133.2447 86.9094 147.258 95.553 155.902C104.1966 164.546 118.2106 164.546 126.8543 155.902L173.154 109.6025" stroke="white" stroke-width="11.0667" stroke-linecap="round" fill="none"/>
+</svg>

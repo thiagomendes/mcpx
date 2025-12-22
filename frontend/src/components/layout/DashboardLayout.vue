@@ -4,9 +4,7 @@
     <aside class="w-64 border-r border-border p-4 flex flex-col">
       <!-- Logo -->
       <div class="flex items-center gap-3 mb-8 px-2">
-        <div class="w-10 h-10 bg-gradient-primary rounded-lg flex items-center justify-center">
-          <BoltIcon class="w-6 h-6 text-white" />
-        </div>
+        <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-10 h-10 object-contain" />
         <span class="text-xl font-bold text-gradient">mcpx</span>
       </div>
 
@@ -27,6 +25,14 @@
         >
           <ServerIcon class="w-5 h-5" />
           Servers
+        </router-link>
+        <router-link 
+          to="/gateways" 
+          class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-background-hover transition-colors"
+          active-class="!text-white !bg-background-hover"
+        >
+          <RectangleStackIcon class="w-5 h-5" />
+          Gateways
         </router-link>
       </nav>
 
@@ -67,9 +73,9 @@
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { 
-  BoltIcon, 
   Squares2X2Icon, 
   ServerIcon, 
+  RectangleStackIcon,
   ArrowRightOnRectangleIcon 
 } from '@heroicons/vue/24/outline'
 

@@ -42,6 +42,7 @@ docs/                     # Documentation
 - Prefix unused variables with `_` (e.g., `_e`, `_wrapper`)
 - Keep unit tests passing before committing
 - Use descriptive commits: `feat:`, `fix:`, `chore:`, `refactor:`
+- **Always create unit tests** for new features before delivery
 
 ### Backend (Rust)
 - Error messages in `messages.rs`

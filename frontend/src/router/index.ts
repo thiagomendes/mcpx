@@ -39,15 +39,27 @@ const router = createRouter({
             meta: { requiresAuth: true },
         },
         {
+            path: '/gateways',
+            name: 'gateways',
+            component: () => import('@/views/dashboard/GatewaysList.vue'),
+            meta: { requiresAuth: true },
+        },
+        {
+            path: '/gateways/:slug',
+            name: 'gateway-details',
+            component: () => import('@/views/dashboard/GatewayDetails.vue'),
+            meta: { requiresAuth: true },
+        },
+        {
             path: '/oauth/callback',
             name: 'oauth-callback',
             component: () => import('@/views/OAuthCallback.vue'),
-        
+
         },
     ],
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, _from, next) => {
     const authStore = useAuthStore()
 
     if (to.meta.requiresAuth && !authStore.isAuthenticated) {

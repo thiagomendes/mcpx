@@ -128,7 +128,16 @@ async fn main() {
         .route("/api/servers/:name/governance", post(routes::governance::set_governance))
         .route("/api/servers/:name/governance", delete(routes::governance::delete_governance))
     
+        // Gateways
+        .route("/api/gateways", get(routes::gateways::list_gateways))
+        .route("/api/gateways", post(routes::gateways::create_gateway))
+        .route("/api/gateways/:slug", get(routes::gateways::get_gateway))
+        .route("/api/gateways/:slug", put(routes::gateways::update_gateway))
+        .route("/api/gateways/:slug", delete(routes::gateways::delete_gateway))
+        .route("/api/gateways/:slug/servers", post(routes::gateways::add_server_to_gateway))
+        .route("/api/gateways/:slug/servers/:name", delete(routes::gateways::remove_server_from_gateway))
     
+        // MCP Proxy
         .route("/mcp/:user_id/:server_name", post(routes::proxy::mcp_proxy))
     
         .layer(cors)

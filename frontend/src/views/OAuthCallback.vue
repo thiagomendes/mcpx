@@ -78,7 +78,8 @@ onMounted(async () => {
     }
   } catch (e: unknown) {
     processing.value = false
-    error.value = e.message || 'Failed to complete authorization'
+    const err = e as Error
+    error.value = err.message || 'Failed to complete authorization'
   }
 })
 

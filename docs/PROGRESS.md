@@ -1,7 +1,7 @@
 # MCPX - Estado do Projeto e Próximos Passos
 
-**Última atualização:** 2025-12-21 17:55
-**Branch:** feature/tool-governance
+**Última atualização:** 2025-12-22 17:20
+**Branch:** feature/virtual-gateways
 
 ---
 
@@ -18,14 +18,26 @@
 
 ---
 
+### Virtual Gateways
+
+**Status:** ✅ **COMPLETO**
+
+- Agregar múltiplos servidores em um endpoint
+- Gateway CRUD (create, read, update, delete)
+- Proxy routing com governance prefix
+- UI: lista, detalhes, gerenciamento de servidores
+- 8 testes unitários (frontend)
+
+---
+
 ### Code Quality Refactoring
 
 **Status:** ✅ **COMPLETO**
 
 - Backend: mensagens centralizadas, SQL constants, OAuth abstraction
 - Frontend: ESLint configurado, constants centralizados
-- Clippy warnings: 23 → 6 | ESLint warnings: 9 → 0
-- 29 testes passando (20 backend + 9 frontend)
+- Clippy warnings: 10 | ESLint warnings: 0
+- **37 testes passando** (20 backend + 17 frontend)
 
 ---
 
@@ -51,11 +63,7 @@
 
 ## 📋 A FAZER (PRÓXIMAS PRIORIDADES)
 
-### 1. Virtual Gateways ⭐
-- [ ] Agregar múltiplos servidores em um endpoint
-- [ ] Ex: `/mcp/{user_id}/all-tools`
-
-### 2. Multi-provider Auth
+### 1. Multi-provider Auth ⭐
 - [ ] Microsoft Entra ID login
 - [ ] GitHub login
 - [ ] Abstração já criada

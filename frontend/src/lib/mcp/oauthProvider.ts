@@ -8,7 +8,9 @@
  * No tokens or sensitive data persisted in browser.
  */
 
+// @ts-expect-error - SDK subpath exports work at runtime but not in TypeScript
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth';
+// @ts-expect-error - SDK subpath exports work at runtime but not in TypeScript
 import type { OAuthTokens, OAuthClientInformationMixed, OAuthClientMetadata } from '@modelcontextprotocol/sdk/shared/auth';
 
 export interface McpxOAuthConfig {
