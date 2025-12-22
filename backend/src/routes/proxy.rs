@@ -15,6 +15,25 @@ use crate::messages::error;
 const SQL_SELECT_SERVER: &str = "SELECT id, user_id, name, url, transport, auth_type, status FROM servers WHERE name = $1 AND user_id = $2";
 const SQL_SELECT_GOVERNANCE: &str = "SELECT allowed_tools, denied_tools, tool_prefix FROM governance_configs WHERE server_id = $1";
 
+const SQL_SELECT_GATEWAY: &str = r#"
+    SELECT g.id, g.name, g.slug FROM gateways g WHERE g.slug = $1 AND g.user_id = $2 AND g.enabled = true
+"#;
+
+const SQL_SELECT_GATEWAY_SERVERS: &str = r#"
+    SELECT s.id, s.user_id, s.name, s.url, s.transport, s.auth_type, s.status
+    FROM gateway_servers gs
+    JOIN servers s ON s.id = gs.server_id
+    WHERE gs.gateway_id = $1
+    ORDER BY gs.priority
+"#;
+
+const SQL_UPSERT_GATEWAY_SESSION: &str = r#"
+    INSERT INTO gateway_sessions (id, gateway_id, user_id, server_sessions, expires_at)
+    VALUES ($1, $2, $3, $4, NOW() + INTERVAL '1 hour')
+    ON CONFLICT (id) DO UPDATE SET server_sessions = $4, expires_at = NOW() + INTERVAL '1 hour'
+"#;
+
+const SQL_SELECT_GATEWAY_SESSION: &str = "SELECT server_sessions FROM gateway_sessions WHERE id = $1";
 
 pub async fn mcp_proxy(
     State(state): State<Arc<AppState>>,
@@ -22,35 +41,43 @@ pub async fn mcp_proxy(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, (StatusCode, String)> {
-    tracing::info!("MCP Proxy request: user={}, server={}", user_id, server_name);
+    tracing::info!("MCP Proxy request: user={}, target={}", user_id, server_name);
     
-
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|_| (StatusCode::BAD_REQUEST, error::INVALID_USER_ID.to_string()))?;
     
-
-    let server = get_server_by_name(&state, &server_name, user_uuid).await
-        .map_err(|e| (StatusCode::NOT_FOUND, format!("{}: {}", error::SERVER_NOT_FOUND, e)))?;
+    if let Ok(server) = get_server_by_name(&state, &server_name, user_uuid).await {
+        return handle_server_proxy(&state, server, headers, body).await;
+    }
     
+    if let Ok(gateway) = get_gateway_by_slug(&state, &server_name, user_uuid).await {
+        return handle_gateway_proxy(&state, gateway, user_uuid, headers, body).await;
+    }
+    
+    Err((StatusCode::NOT_FOUND, format!("{}: no server or gateway found with name '{}'", error::SERVER_NOT_FOUND, server_name)))
+}
+
+async fn handle_server_proxy(
+    state: &AppState,
+    server: ServerRow,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<Response, (StatusCode, String)> {
 
     if server.status.as_deref() == Some("disabled") {
         return Err((StatusCode::SERVICE_UNAVAILABLE, error::SERVER_DISABLED.to_string()));
     }
     
-
-    let governance = get_governance_config(&state, server.id).await
+    let governance = get_governance_config(state, server.id).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::GOVERNANCE_ERROR, e)))?;
     
-
-    let auth_headers = build_auth_headers(&state, &server).await
+    let auth_headers = build_auth_headers(state, &server).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
     
-
     let body_bytes = axum::body::to_bytes(body, 10 * 1024 * 1024)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("{}: {}", error::FAILED_TO_READ_BODY, e)))?;
     
-
     let request: serde_json::Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("{}: {}", error::INVALID_JSON, e)))?;
     
@@ -58,24 +85,255 @@ pub async fn mcp_proxy(
         .and_then(|m| m.as_str())
         .unwrap_or("");
     
-
     let modified_body = if method == "tools/call" {
         handle_tools_call(&request, &governance)?
     } else {
         body_bytes.to_vec()
     };
     
-
     let response = forward_request(&server.url, headers, auth_headers, modified_body).await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)))?;
     
-
     if method == "tools/list" {
         return filter_tools_response(response, &governance).await;
     }
     
     Ok(response)
 }
+
+#[derive(Debug, sqlx::FromRow)]
+struct GatewayRow {
+    id: Uuid,
+    name: String,
+    slug: String,
+}
+
+async fn get_gateway_by_slug(state: &AppState, slug: &str, user_id: Uuid) -> Result<GatewayRow, String> {
+    sqlx::query_as::<_, GatewayRow>(SQL_SELECT_GATEWAY)
+        .bind(slug)
+        .bind(user_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?
+        .ok_or_else(|| "Gateway not found".to_string())
+}
+
+async fn get_gateway_servers(state: &AppState, gateway_id: Uuid) -> Result<Vec<ServerRow>, String> {
+    sqlx::query_as::<_, ServerRow>(SQL_SELECT_GATEWAY_SERVERS)
+        .bind(gateway_id)
+        .fetch_all(&state.db.pool)
+        .await
+        .map_err(|e| format!("Database error: {}", e))
+}
+
+async fn handle_gateway_proxy(
+    state: &AppState,
+    gateway: GatewayRow,
+    user_id: Uuid,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<Response, (StatusCode, String)> {
+    tracing::info!("Gateway proxy: {}", gateway.name);
+    
+    let servers = get_gateway_servers(state, gateway.id).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get gateway servers: {}", e)))?;
+    
+    if servers.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Gateway has no servers".to_string()));
+    }
+    
+    let body_bytes = axum::body::to_bytes(body, 10 * 1024 * 1024)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{}: {}", error::FAILED_TO_READ_BODY, e)))?;
+    
+    let request: serde_json::Value = serde_json::from_slice(&body_bytes)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{}: {}", error::INVALID_JSON, e)))?;
+    
+    let method = request.get("method")
+        .and_then(|m| m.as_str())
+        .unwrap_or("");
+    
+    match method {
+        "initialize" => handle_gateway_initialize(state, &gateway, user_id, &servers, headers, body_bytes.to_vec()).await,
+        "tools/list" => handle_gateway_tools_list(state, &gateway, &servers, headers, body_bytes.to_vec()).await,
+        "tools/call" => handle_gateway_tools_call(state, &gateway, &servers, headers, &request, body_bytes.to_vec()).await,
+        _ => {
+            if let Some(server) = servers.first() {
+                let auth_headers = build_auth_headers(state, server).await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
+                forward_request(&server.url, headers, auth_headers, body_bytes.to_vec()).await
+                    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)))
+            } else {
+                Err((StatusCode::BAD_REQUEST, "No servers in gateway".to_string()))
+            }
+        }
+    }
+}
+
+async fn handle_gateway_initialize(
+    state: &AppState,
+    gateway: &GatewayRow,
+    user_id: Uuid,
+    servers: &[ServerRow],
+    headers: HeaderMap,
+    body: Vec<u8>,
+) -> Result<Response, (StatusCode, String)> {
+    let gateway_session_id = format!("gw_{}", Uuid::new_v4().to_string().replace("-", ""));
+    let mut server_sessions: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut last_response: Option<Response> = None;
+    
+    for server in servers {
+        let auth_headers = build_auth_headers(state, server).await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
+        
+        let response = forward_request(&server.url, headers.clone(), auth_headers, body.clone()).await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to initialize {}: {}", server.name, e)))?;
+        
+        let session_id = response.headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        
+        server_sessions.insert(server.name.clone(), session_id);
+        last_response = Some(response);
+    }
+    
+    let sessions_json = serde_json::to_value(&server_sessions)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;
+    
+    sqlx::query(SQL_UPSERT_GATEWAY_SESSION)
+        .bind(&gateway_session_id)
+        .bind(gateway.id)
+        .bind(user_id)
+        .bind(&sessions_json)
+        .execute(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to save session: {}", e)))?;
+    
+    let mut response = last_response.unwrap_or_else(|| {
+        Response::builder()
+            .status(StatusCode::OK)
+            .body(Body::empty())
+            .unwrap()
+    });
+    
+    response.headers_mut().insert(
+        "mcp-session-id",
+        gateway_session_id.parse().unwrap(),
+    );
+    
+    Ok(response)
+}
+
+async fn handle_gateway_tools_list(
+    state: &AppState,
+    _gateway: &GatewayRow,
+    servers: &[ServerRow],
+    headers: HeaderMap,
+    body: Vec<u8>,
+) -> Result<Response, (StatusCode, String)> {
+    let mut all_tools: Vec<McpTool> = Vec::new();
+    let mut last_response_id: Option<serde_json::Value> = None;
+    
+    for server in servers {
+        let governance = get_governance_config(state, server.id).await
+            .unwrap_or_default();
+        
+        let auth_headers = build_auth_headers(state, server).await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
+        
+        let response = forward_request(&server.url, headers.clone(), auth_headers, body.clone()).await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to list tools from {}: {}", server.name, e)))?;
+        
+        let body_bytes = axum::body::to_bytes(response.into_body(), 10 * 1024 * 1024)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read response: {}", e)))?;
+        
+        let body_str = String::from_utf8_lossy(&body_bytes);
+        
+        for line in body_str.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                if let Ok(parsed) = serde_json::from_str::<McpToolsListResponse>(data) {
+                    if let Some(result) = parsed.result {
+                        for mut tool in result.tools {
+                            let filtered_name = governance.add_prefix(&tool.name);
+                            let prefixed_name = format!("{}_{}", server.name, filtered_name);
+                            tool.name = prefixed_name;
+                            if governance.is_tool_allowed(&tool.name.replace(&format!("{}_", server.name), "")) {
+                                all_tools.push(tool);
+                            }
+                        }
+                    }
+                    last_response_id = Some(parsed.id);
+                }
+            }
+        }
+    }
+    
+    let response_json = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": last_response_id.unwrap_or(serde_json::json!(1)),
+        "result": {
+            "tools": all_tools
+        }
+    });
+    
+    let sse_body = format!("data: {}\n\n", response_json);
+    
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/event-stream")
+        .body(Body::from(sse_body))
+        .unwrap())
+}
+
+async fn handle_gateway_tools_call(
+    state: &AppState,
+    _gateway: &GatewayRow,
+    servers: &[ServerRow],
+    headers: HeaderMap,
+    request: &serde_json::Value,
+    _body: Vec<u8>,
+) -> Result<Response, (StatusCode, String)> {
+    let tool_name = request
+        .get("params")
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str())
+        .ok_or((StatusCode::BAD_REQUEST, "Missing tool name".to_string()))?;
+    
+    let (server_name, original_tool) = tool_name
+        .split_once('_')
+        .ok_or((StatusCode::BAD_REQUEST, format!("Invalid prefixed tool name: {}", tool_name)))?;
+    
+    let server = servers.iter()
+        .find(|s| s.name == server_name)
+        .ok_or((StatusCode::NOT_FOUND, format!("Server '{}' not found in gateway", server_name)))?;
+    
+    let governance = get_governance_config(state, server.id).await.unwrap_or_default();
+    let final_tool_name = governance.strip_prefix(original_tool);
+    
+    if !governance.is_tool_allowed(final_tool_name) {
+        return Err((StatusCode::FORBIDDEN, format!("Tool '{}' is not allowed by governance policy", tool_name)));
+    }
+    
+    let mut modified_request = request.clone();
+    if let Some(params) = modified_request.get_mut("params") {
+        if let Some(name) = params.get_mut("name") {
+            *name = serde_json::json!(final_tool_name);
+        }
+    }
+    
+    let modified_body = serde_json::to_vec(&modified_request)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;
+    
+    let auth_headers = build_auth_headers(state, server).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
+    
+    forward_request(&server.url, headers, auth_headers, modified_body).await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)))
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct GovernanceConfig {
     pub allowed_tools: Vec<String>,
