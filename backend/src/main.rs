@@ -137,6 +137,11 @@ async fn main() {
         .route("/api/gateways/:slug/servers", post(routes::gateways::add_server_to_gateway))
         .route("/api/gateways/:slug/servers/:name", delete(routes::gateways::remove_server_from_gateway))
     
+        // Metrics
+        .route("/api/metrics/today", get(routes::metrics::get_today))
+        .route("/api/metrics/hourly", get(routes::metrics::get_hourly))
+        .route("/api/metrics/by-target", get(routes::metrics::get_by_target))
+    
         // MCP Proxy
         .route("/mcp/:user_id/:server_name", post(routes::proxy::mcp_proxy))
     

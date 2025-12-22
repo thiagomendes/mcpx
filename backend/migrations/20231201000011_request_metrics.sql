@@ -67,3 +67,51 @@ SELECT add_continuous_aggregate_policy('request_metrics_daily',
     start_offset => INTERVAL '3 days',
     end_offset => INTERVAL '1 day',
     schedule_interval => INTERVAL '1 day');
+
+-- ============================================
+-- REQUEST LOGS (Schema only - future use)
+-- ============================================
+CREATE TABLE request_logs (
+    time TIMESTAMPTZ NOT NULL,
+    user_id UUID NOT NULL,
+    server_id UUID,
+    server_name VARCHAR(255),
+    level VARCHAR(10) NOT NULL DEFAULT 'info',  -- 'debug', 'info', 'warn', 'error'
+    method VARCHAR(50),
+    message TEXT,
+    metadata JSONB DEFAULT '{}'
+);
+
+-- Convert to hypertable
+SELECT create_hypertable('request_logs', 'time');
+
+-- Indexes
+CREATE INDEX idx_logs_user_time ON request_logs (user_id, time DESC);
+CREATE INDEX idx_logs_level ON request_logs (level, time DESC);
+
+-- Retention: 30 days
+SELECT add_retention_policy('request_logs', INTERVAL '30 days');
+
+-- ============================================
+-- AUDIT EVENTS (Schema only - future use)
+-- ============================================
+CREATE TABLE audit_events (
+    time TIMESTAMPTZ NOT NULL,
+    user_id UUID NOT NULL,
+    action VARCHAR(50) NOT NULL,           -- 'create', 'update', 'delete', 'login', 'logout'
+    resource_type VARCHAR(50),             -- 'server', 'gateway', 'credential', 'governance'
+    resource_id UUID,
+    resource_name VARCHAR(255),
+    details JSONB DEFAULT '{}'
+);
+
+-- Convert to hypertable
+SELECT create_hypertable('audit_events', 'time');
+
+-- Indexes
+CREATE INDEX idx_audit_user_time ON audit_events (user_id, time DESC);
+CREATE INDEX idx_audit_action ON audit_events (action, time DESC);
+CREATE INDEX idx_audit_resource ON audit_events (resource_type, resource_id, time DESC);
+
+-- Retention: 365 days
+SELECT add_retention_policy('audit_events', INTERVAL '365 days');

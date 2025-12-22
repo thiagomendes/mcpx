@@ -65,6 +65,7 @@ async fn handle_server_proxy(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, (StatusCode, String)> {
+    let start = std::time::Instant::now();
 
     if server.status.as_deref() == Some("disabled") {
         return Err((StatusCode::SERVICE_UNAVAILABLE, error::SERVER_DISABLED.to_string()));
@@ -93,7 +94,23 @@ async fn handle_server_proxy(
         body_bytes.to_vec()
     };
     
-    let response = forward_request(&server.url, headers, auth_headers, modified_body).await
+    let result = forward_request(&server.url, headers, auth_headers, modified_body).await;
+    
+    // Record metrics
+    let latency_ms = start.elapsed().as_millis() as i32;
+    let success = result.is_ok();
+    let _ = crate::services::metrics::record_request(
+        &state.db.pool,
+        server.user_id,
+        "server",
+        server.id,
+        &server.name,
+        Some(method),
+        latency_ms,
+        success,
+    ).await;
+
+    let response = result
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)))?;
     
     if method == "tools/list" {
@@ -135,6 +152,7 @@ async fn handle_gateway_proxy(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, (StatusCode, String)> {
+    let start = std::time::Instant::now();
     tracing::info!("Gateway proxy: {}", gateway.name);
     
     let servers = get_gateway_servers(state, gateway.id).await
@@ -155,7 +173,7 @@ async fn handle_gateway_proxy(
         .and_then(|m| m.as_str())
         .unwrap_or("");
     
-    match method {
+    let result = match method {
         "initialize" => handle_gateway_initialize(state, &gateway, user_id, &servers, headers, body_bytes.to_vec()).await,
         "tools/list" => handle_gateway_tools_list(state, &gateway, &servers, headers, &request, body_bytes.to_vec()).await,
         "tools/call" => handle_gateway_tools_call(state, &gateway, &servers, headers, &request, body_bytes.to_vec()).await,
@@ -169,7 +187,23 @@ async fn handle_gateway_proxy(
                 Err((StatusCode::BAD_REQUEST, "No servers in gateway".to_string()))
             }
         }
-    }
+    };
+
+    // Record gateway metrics
+    let latency_ms = start.elapsed().as_millis() as i32;
+    let success = result.is_ok();
+    let _ = crate::services::metrics::record_request(
+        &state.db.pool,
+        user_id,
+        "gateway",
+        gateway.id,
+        &gateway.name,
+        Some(method),
+        latency_ms,
+        success,
+    ).await;
+
+    result
 }
 
 async fn handle_gateway_initialize(

@@ -33,7 +33,9 @@
             <ArrowTrendingUpIcon class="w-5 h-5 text-gray-400" />
             <span class="text-gray-400 text-sm">Requests Today</span>
           </div>
-          <div class="text-3xl font-bold">0</div>
+          <div class="text-3xl font-bold" :class="{ 'animate-pulse': metricsStore.loading }">
+            {{ metricsStore.todayMetrics.servers }}
+          </div>
         </div>
       </div>
       <div class="flex gap-4">
@@ -76,7 +78,9 @@
             <ArrowTrendingUpIcon class="w-5 h-5 text-gray-400" />
             <span class="text-gray-400 text-sm">Requests Today</span>
           </div>
-          <div class="text-3xl font-bold">0</div>
+          <div class="text-3xl font-bold" :class="{ 'animate-pulse': metricsStore.loading }">
+            {{ metricsStore.todayMetrics.gateways }}
+          </div>
         </div>
       </div>
       <div class="flex gap-4">
@@ -99,6 +103,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useServersStore } from '@/stores/servers'
 import { useGatewaysStore } from '@/stores/gateways'
+import { useMetricsStore } from '@/stores/metrics'
 import { 
   ServerIcon, 
   CheckCircleIcon, 
@@ -110,9 +115,11 @@ import {
 const authStore = useAuthStore()
 const serversStore = useServersStore()
 const gatewaysStore = useGatewaysStore()
+const metricsStore = useMetricsStore()
 
 onMounted(() => {
   serversStore.fetchServers()
   gatewaysStore.fetchGateways()
+  metricsStore.fetchTodayMetrics()
 })
 </script>
