@@ -117,6 +117,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref, reactive } from 'vue'
+import { useRoute } from 'vue-router'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import { useGatewaysStore } from '@/stores/gateways'
 import { 
@@ -126,6 +127,7 @@ import {
   TrashIcon 
 } from '@heroicons/vue/24/outline'
 
+const route = useRoute()
 const gatewaysStore = useGatewaysStore()
 const showCreateModal = ref(false)
 const creating = ref(false)
@@ -133,6 +135,11 @@ const newGateway = reactive({ name: '', slug: '' })
 
 onMounted(() => {
   gatewaysStore.fetchGateways()
+  
+  // Open create modal if ?create=true query param is present
+  if (route.query.create === 'true') {
+    showCreateModal.value = true
+  }
 })
 
 function copyProxyUrl(url: string) {
