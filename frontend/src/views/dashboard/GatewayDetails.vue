@@ -26,6 +26,30 @@
         </div>
       </div>
 
+      <!-- Tools List -->
+      <div class="card mb-6">
+        <button 
+          @click="toolsExpanded = !toolsExpanded" 
+          class="w-full font-semibold flex items-center justify-between cursor-pointer hover:text-primary transition-colors"
+        >
+          <div class="flex items-center gap-2">
+            <CommandLineIcon class="w-5 h-5 text-primary" />
+            <span v-if="loadingTools">Loading tools...</span>
+            <span v-else-if="toolsError">Failed to load tools</span>
+            <span v-else>Available Tools ({{ tools.length }})</span>
+          </div>
+          <ChevronDownIcon :class="['w-5 h-5 transition-transform', toolsExpanded ? 'rotate-180' : '']" />
+        </button>
+        <div v-if="toolsExpanded && !loadingTools" class="mt-4 space-y-3">
+          <div v-if="toolsError" class="text-red-400 text-sm">{{ toolsError }}</div>
+          <div v-else-if="tools.length === 0" class="text-gray-400 text-sm">No tools available. Add servers to the gateway first.</div>
+          <div v-else v-for="tool in tools" :key="tool.name" class="bg-background-darker px-4 py-3 rounded-lg">
+            <div class="font-mono text-sm text-primary">{{ tool.name }}</div>
+            <div v-if="tool.description" class="text-gray-400 text-sm mt-1">{{ tool.description }}</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Proxy URL -->
       <div class="card mb-6">
         <h3 class="font-semibold mb-3 flex items-center gap-2">
@@ -148,16 +172,29 @@ import {
   ServerIcon,
   PlusIcon,
   XMarkIcon,
+  CommandLineIcon,
+  ChevronDownIcon,
 } from '@heroicons/vue/24/outline'
+import { useAuthStore } from '@/stores/auth'
+
+interface GatewayTool {
+  name: string
+  description?: string
+}
 
 const route = useRoute()
 const router = useRouter()
 const gatewaysStore = useGatewaysStore()
 const serversStore = useServersStore()
+const authStore = useAuthStore()
 
 const showAddServerModal = ref(false)
 const selectedServer = ref('')
 const addingServer = ref(false)
+const tools = ref<GatewayTool[]>([])
+const loadingTools = ref(false)
+const toolsError = ref<string | null>(null)
+const toolsExpanded = ref(true)
 
 const slug = computed(() => route.params.slug as string)
 const gateway = computed(() => gatewaysStore.getGatewayBySlug(slug.value))
@@ -182,7 +219,42 @@ const claudeConfig = computed(() => {
 onMounted(async () => {
   await gatewaysStore.fetchGateways()
   await serversStore.fetchServers()
+  await loadTools()
 })
+
+async function loadTools() {
+  if (!gateway.value || !authStore.user?.id) return
+  loadingTools.value = true
+  toolsError.value = null
+  
+  try {
+    const response = await fetch(gateway.value.proxy_url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'tools/list',
+        params: {},
+        id: 1
+      })
+    })
+    
+    const text = await response.text()
+    const lines = text.split('\n')
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = JSON.parse(line.slice(6))
+        if (data.result?.tools) {
+          tools.value = data.result.tools
+        }
+      }
+    }
+  } catch {
+    toolsError.value = 'Failed to fetch tools from gateway'
+  } finally {
+    loadingTools.value = false
+  }
+}
 
 function copyProxyUrl() {
   if (gateway.value) {
