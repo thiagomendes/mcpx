@@ -97,51 +97,63 @@
 
 ---
 
-## 🚧 EM DESENVOLVIMENTO
+## ✅ IMPLEMENTADO E FUNCIONANDO
 
 ### Observability Phase 2
 
-**Status:** 🔄 **PRÓXIMA ENTREGA**
+**Status:** ✅ **COMPLETO**
 
-O dashboard de métricas está funcional, mas faltam features importantes de observability:
+O dashboard de métricas foi expandido com features completas de observability:
 
-#### Audit Log Viewer
-**Prioridade:** 🔴 Alta
+#### Audit Log Viewer ✅
+**Prioridade:** 🔴 Alta - **IMPLEMENTADO**
 
-Uma página para visualizar logs individuais de cada request MCP:
+Página para visualizar logs individuais de cada request MCP:
 
-| Campo | Descrição |
-|-------|-----------|
-| Timestamp | Data/hora do request |
-| Server/Gateway | Nome do target |
-| Method | `initialize`, `tools/list`, `tools/call` |
-| Tool Name | Nome da tool (se `tools/call`) |
-| Request Summary | Parâmetros enviados |
-| Response Summary | Resultado ou erro |
-| Latency | Tempo de resposta (ms) |
-| Status | ✅ Success / ❌ Error |
+| Campo | Descrição | Status |
+|-------|-----------|--------|
+| Timestamp | Data/hora do request | ✅ |
+| Server/Gateway | Nome do target | ✅ |
+| Method | `initialize`, `tools/list`, `tools/call` | ✅ |
+| Tool Name | Nome da tool (se `tools/call`) | ✅ |
+| Request Body | JSON completo do request | ✅ |
+| Response Body | JSON completo da resposta (SSE parsed) | ✅ |
+| Latency | Tempo de resposta (ms) | ✅ |
+| Status | ✅ Success / ❌ Error (JSON-RPC aware) | ✅ |
 
-**Tarefas:**
-- [ ] Migração: Adicionar `request_body` e `response_body` à `request_metrics`
-- [ ] API: `GET /api/audit` com paginação e filtros
-- [ ] API: `GET /api/audit/{id}` para detalhes
-- [ ] Frontend: Página `/audit` com tabela paginada
-- [ ] Frontend: Modal de detalhes do request
-- [ ] Frontend: Filtros (server, method, date range, status)
+**Features implementadas:**
+- [x] Migração: `audit_logs` hypertable com 30 dias retention
+- [x] API: `GET /api/audit` com paginação e filtros
+- [x] API: `GET /api/audit/{id}` para detalhes
+- [x] Frontend: Página `/audit` com tabela paginada
+- [x] Frontend: Modal de detalhes do request
+- [x] Frontend: Filtros (server, method, date range, status)
+- [x] Frontend: Auto-refresh com toggle e countdown
+- [x] SSE parsing para capturar response bodies de MCP servers
+- [x] Detecção de erros JSON-RPC no response body
+
+---
+
+#### Percentile Metrics ✅
+**Prioridade:** 🟢 Baixa - **IMPLEMENTADO**
+
+- [x] API: `GET /api/metrics/summary` com P50, P95, P99, MAX
+- [x] Frontend: Toggle buttons no dashboard para latency/throughput
+- [x] Suporte a MIN/MAX para throughput
 
 ---
 
-#### Server Logs
-**Prioridade:** 🟡 Média
+#### Server Logs ✅
+**Prioridade:** 🟡 Média - **COBERTO PELO AUDIT LOG**
 
-Logs detalhados por servidor específico (acessível na página do server):
-
-**Tarefas:**
-- [ ] API: `GET /api/servers/{name}/logs` com paginação
-- [ ] Frontend: Tab "Logs" na página ServerDetails
-- [ ] Visualização de erros com stack trace
+O Audit Log Viewer implementado cobre completamente o escopo original de Server Logs:
+- Logs por servidor (filtro por `target_name`)
+- Visualização de erros com stack trace
+- Request/Response body completos
 
 ---
+
+## 🚧 EM DESENVOLVIMENTO
 
 #### Alerting System (Alert Configuration Builder)
 **Prioridade:** 🟡 Média
