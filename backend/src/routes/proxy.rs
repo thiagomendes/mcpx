@@ -88,6 +88,16 @@ async fn handle_server_proxy(
         .and_then(|m| m.as_str())
         .unwrap_or("");
     
+    // Extract tool_name when method is tools/call
+    let tool_name = if method == "tools/call" {
+        request.get("params")
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
+    
     let modified_body = if method == "tools/call" {
         handle_tools_call(&request, &governance)?
     } else {
@@ -106,6 +116,7 @@ async fn handle_server_proxy(
         server.id,
         &server.name,
         Some(method),
+        tool_name.as_deref(),
         latency_ms,
         success,
     ).await;
@@ -173,6 +184,16 @@ async fn handle_gateway_proxy(
         .and_then(|m| m.as_str())
         .unwrap_or("");
     
+    // Extract tool_name when method is tools/call
+    let tool_name = if method == "tools/call" {
+        request.get("params")
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
+    
     let result = match method {
         "initialize" => handle_gateway_initialize(state, &gateway, user_id, &servers, headers, body_bytes.to_vec()).await,
         "tools/list" => handle_gateway_tools_list(state, &gateway, &servers, headers, &request, body_bytes.to_vec()).await,
@@ -199,6 +220,7 @@ async fn handle_gateway_proxy(
         gateway.id,
         &gateway.name,
         Some(method),
+        tool_name.as_deref(),
         latency_ms,
         success,
     ).await;
@@ -347,23 +369,45 @@ async fn handle_gateway_tools_call(
         .and_then(|n| n.as_str())
         .ok_or((StatusCode::BAD_REQUEST, "Missing tool name".to_string()))?;
     
+    tracing::info!("Gateway tools/call: looking for tool '{}'", tool_name);
+    
     // Try each server to find one that has this tool
     for server in servers {
         let governance = get_governance_config(state, server.id).await.unwrap_or_default();
+        
+        tracing::debug!(
+            "Server '{}': prefix='{}', auth_type={:?}", 
+            server.name, 
+            governance.tool_prefix,
+            server.auth_type
+        );
         
         // Strip governance prefix to get original tool name
         let original_tool_name = governance.strip_prefix(tool_name);
         
         // Check if this tool is allowed by governance
         if !governance.is_tool_allowed(original_tool_name) {
+            tracing::debug!("Tool '{}' not allowed by governance", original_tool_name);
             continue;
         }
         
         // Check if this was the right server (prefix matched)
         let expected_prefixed = governance.add_prefix(original_tool_name);
         if expected_prefixed != tool_name {
+            tracing::debug!(
+                "Prefix mismatch: expected '{}' but got '{}'", 
+                expected_prefixed, 
+                tool_name
+            );
             continue;
         }
+        
+        tracing::info!(
+            "Routing tool '{}' to server '{}' (original: '{}')", 
+            tool_name, 
+            server.name, 
+            original_tool_name
+        );
         
         // Found the right server - forward the request
         let mut modified_request = request.clone();
@@ -377,12 +421,18 @@ async fn handle_gateway_tools_call(
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;
         
         let auth_headers = build_auth_headers(state, server).await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
+            .map_err(|e| {
+                tracing::error!("Auth error for server '{}': {}", server.name, e);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e))
+            })?;
+        
+        tracing::debug!("Auth headers count: {}", auth_headers.len());
         
         return forward_request(&server.url, headers, auth_headers, modified_body).await
             .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)));
     }
     
+    tracing::warn!("Tool '{}' not found in any of {} gateway servers", tool_name, servers.len());
     Err((StatusCode::NOT_FOUND, format!("Tool '{}' not found in any gateway server", tool_name)))
 }
 
@@ -452,7 +502,9 @@ struct GovernanceRow {
 struct McpToolsListResponse {
     jsonrpc: String,
     id: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<ToolsListResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<serde_json::Value>,
 }
 

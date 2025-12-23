@@ -12,17 +12,17 @@ use std::sync::Arc;
 
 use crate::AppState;
 use crate::routes::auth::{extract_token, validate_token, get_dev_user_id};
-use crate::services::metrics::{self, TodayMetrics, HourlyStat, TargetMetrics};
+use crate::services::metrics::{self, TodayMetrics, HourlyStat, TargetMetrics, MetricsQuery, QueryResponse};
 use crate::messages::error;
 
 #[derive(Debug, Deserialize)]
 pub struct HourlyParams {
     #[serde(default = "default_hours")]
-    pub hours: i32,
+    pub hours: f64,
 }
 
-fn default_hours() -> i32 {
-    24
+fn default_hours() -> f64 {
+    24.0
 }
 
 async fn get_user_id(
@@ -84,3 +84,20 @@ pub async fn get_by_target(
 
     Ok(Json(metrics))
 }
+
+/// POST /api/metrics/query
+/// Flexible query endpoint with filters, grouping, and bucket size
+pub async fn query(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(query): Json<MetricsQuery>,
+) -> Result<Json<QueryResponse>, (StatusCode, String)> {
+    let user_id = get_user_id(&headers, &state).await?;
+
+    let response = metrics::query_metrics(&state.db.pool, user_id, query)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
+    Ok(Json(response))
+}
+

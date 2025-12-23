@@ -141,6 +141,7 @@ async fn main() {
         .route("/api/metrics/today", get(routes::metrics::get_today))
         .route("/api/metrics/hourly", get(routes::metrics::get_hourly))
         .route("/api/metrics/by-target", get(routes::metrics::get_by_target))
+        .route("/api/metrics/query", post(routes::metrics::query))
     
         // MCP Proxy
         .route("/mcp/:user_id/:server_name", post(routes::proxy::mcp_proxy))

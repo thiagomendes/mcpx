@@ -16,8 +16,10 @@
     "@heroicons/vue": "^2.1.0",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "axios": "^1.6.0",
+    "chart.js": "^4.5.1",
     "pinia": "^2.1.0",
     "vue": "^3.4.0",
+    "vue-chartjs": "^5.3.3",
     "vue-router": "^4.2.0"
   },
   "devDependencies": {

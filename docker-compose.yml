@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:15-alpine
+    image: timescale/timescaledb:latest-pg15
     container_name: mcpx-postgres
     environment:
       POSTGRES_USER: postgres
@@ -11,7 +11,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -25,7 +25,7 @@ services:
       - redis_data:/data
     command: redis-server --appendonly yes
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
