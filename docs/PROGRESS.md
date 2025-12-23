@@ -97,6 +97,74 @@
 
 ---
 
+## 🚧 EM DESENVOLVIMENTO
+
+### Observability Phase 2
+
+**Status:** 🔄 **PRÓXIMA ENTREGA**
+
+O dashboard de métricas está funcional, mas faltam features importantes de observability:
+
+#### Audit Log Viewer
+**Prioridade:** 🔴 Alta
+
+Uma página para visualizar logs individuais de cada request MCP:
+
+| Campo | Descrição |
+|-------|-----------|
+| Timestamp | Data/hora do request |
+| Server/Gateway | Nome do target |
+| Method | `initialize`, `tools/list`, `tools/call` |
+| Tool Name | Nome da tool (se `tools/call`) |
+| Request Summary | Parâmetros enviados |
+| Response Summary | Resultado ou erro |
+| Latency | Tempo de resposta (ms) |
+| Status | ✅ Success / ❌ Error |
+
+**Tarefas:**
+- [ ] Migração: Adicionar `request_body` e `response_body` à `request_metrics`
+- [ ] API: `GET /api/audit` com paginação e filtros
+- [ ] API: `GET /api/audit/{id}` para detalhes
+- [ ] Frontend: Página `/audit` com tabela paginada
+- [ ] Frontend: Modal de detalhes do request
+- [ ] Frontend: Filtros (server, method, date range, status)
+
+---
+
+#### Server Logs
+**Prioridade:** 🟡 Média
+
+Logs detalhados por servidor específico (acessível na página do server):
+
+**Tarefas:**
+- [ ] API: `GET /api/servers/{name}/logs` com paginação
+- [ ] Frontend: Tab "Logs" na página ServerDetails
+- [ ] Visualização de erros com stack trace
+
+---
+
+#### Alerting
+**Prioridade:** 🟡 Média
+
+Sistema de alertas para condições anômalas:
+
+| Tipo de Alerta | Condição | Ação |
+|----------------|----------|------|
+| Error Spike | Taxa de erro > X% em Y minutos | Notificação |
+| High Latency | Latência média > Xms | Notificação |
+| Server Down | Health check failed | Notificação |
+
+**Tarefas:**
+- [ ] Migração: Tabela `alert_rules` (user_id, type, threshold, enabled)
+- [ ] Migração: Tabela `alert_history` (rule_id, triggered_at, resolved_at)
+- [ ] Backend: Job de verificação de alertas (cron 1min)
+- [ ] API: CRUD de regras de alerta
+- [ ] Frontend: Página de configuração de alertas
+- [ ] Frontend: Painel de alertas ativos no dashboard
+- [ ] (Futuro) Integração com email/Slack/webhook
+
+---
+
 ## 📋 A FAZER (FUTURO)
 
 ### Multi-provider Auth
@@ -115,10 +183,6 @@
 - [ ] Contador por janela de tempo
 - [ ] Middleware de limitação
 - [ ] (Considerar PostgreSQL em vez de Redis)
-
-### Alerting
-- [ ] Picos de erro
-- [ ] Notificações
 
 ---
 
