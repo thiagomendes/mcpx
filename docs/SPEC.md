@@ -3043,25 +3043,26 @@ async fn main() {
 ## Phase 4: Observability & Polish (Week 4)
 
 ### Goals
-- [ ] Complete audit logging
-- [ ] Analytics dashboard
+- [x] Complete audit logging
+- [x] Analytics dashboard (percentile metrics)
 - [ ] Error handling & edge cases
 - [ ] Documentation & testing
 
 ### Tasks
 
-| Task | Priority | Hours | Dependencies |
-|------|----------|-------|--------------|
-| Implement audit_logs table | 🔴 High | 2h | Migrations |
-| Log all MCP requests/responses | 🔴 High | 4h | Audit table |
-| API: Audit log endpoints | 🟡 Medium | 3h | Audit logging |
-| Frontend: Audit log viewer | 🟡 Medium | 4h | Audit API |
-| API: Usage statistics | 🟢 Low | 3h | Audit logs |
-| Frontend: Analytics dashboard | 🟢 Low | 4h | Stats API |
-| Error handling middleware | 🔴 High | 3h | All APIs |
-| SSE streaming for responses | 🟡 Medium | 4h | MCP proxy |
-| Integration tests | 🟡 Medium | 6h | All features |
-| Documentation updates | 🟢 Low | 4h | All complete |
+| Task | Priority | Hours | Dependencies | Status |
+|------|----------|-------|--------------|--------|
+| Implement audit_logs table | 🔴 High | 2h | Migrations | ✅ Done |
+| Log all MCP requests/responses | 🔴 High | 4h | Audit table | ✅ Done |
+| API: Audit log endpoints | 🟡 Medium | 3h | Audit logging | ✅ Done |
+| Frontend: Audit log viewer | 🟡 Medium | 4h | Audit API | ✅ Done |
+| API: Usage statistics (percentiles) | 🟢 Low | 3h | Audit logs | ✅ Done |
+| Frontend: Analytics dashboard | 🟢 Low | 4h | Stats API | ✅ Done |
+| Server Logs | 🟡 Medium | - | - | ✅ Covered by Audit |
+| Error handling middleware | 🔴 High | 3h | All APIs | ⬜ Pending |
+| SSE streaming for responses | 🟡 Medium | 4h | MCP proxy | ✅ Done (parsing) |
+| Integration tests | 🟡 Medium | 6h | All features | ⬜ Pending |
+| Documentation updates | 🟢 Low | 4h | All complete | ⬜ Pending |
 
 ### Deliverables
 - ✅ Complete audit trail for all requests
