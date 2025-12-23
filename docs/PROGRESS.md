@@ -143,25 +143,100 @@ Logs detalhados por servidor específico (acessível na página do server):
 
 ---
 
-#### Alerting
+#### Alerting System (Alert Configuration Builder)
 **Prioridade:** 🟡 Média
 
-Sistema de alertas para condições anômalas:
+Builder visual de regras de alerta inspirado no Datadog, simplificado para MCPX.
 
-| Tipo de Alerta | Condição | Ação |
-|----------------|----------|------|
-| Error Spike | Taxa de erro > X% em Y minutos | Notificação |
-| High Latency | Latência média > Xms | Notificação |
-| Server Down | Health check failed | Notificação |
+##### UI Design - Estrutura em 3 Passos
 
-**Tarefas:**
-- [ ] Migração: Tabela `alert_rules` (user_id, type, threshold, enabled)
-- [ ] Migração: Tabela `alert_history` (rule_id, triggered_at, resolved_at)
-- [ ] Backend: Job de verificação de alertas (cron 1min)
-- [ ] API: CRUD de regras de alerta
-- [ ] Frontend: Página de configuração de alertas
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Create Alert Rule                                              │
+├─────────────────────────────────────────────────────────────────┤
+│  ① Choose Alert Type                                           │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐            │
+│  │ 📊 Threshold │ │ 📈 Spike     │ │ ❌ No Data   │            │
+│  └──────────────┘ └──────────────┘ └──────────────┘            │
+│                                                                 │
+│  ② Define the Condition                                        │
+│  When [Error Rate ▼] for [deepwiki ▼]                          │
+│  is [above ▼] [5] [%] for [5 ▼] minutes                        │
+│                                                                 │
+│  ③ Notification                                                │
+│  Alert Name: [High error rate on deepwiki]                     │
+│  [✓] Dashboard notification                                    │
+│  [ ] Email (coming soon)                                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+##### Alert Types
+
+| Tipo | Descrição |
+|------|-----------|
+| **Threshold** | Métrica cruza um valor (error rate > 5%) |
+| **Spike** | Mudança brusca (latency +200% em 5min) |
+| **No Data** | Servidor sem resposta (sem requests há 10min) |
+
+##### Metrics
+
+| Métrica | Unidade |
+|---------|---------|
+| Error Rate | % |
+| Avg Latency | ms |
+| Request Count | requests |
+| P95 Latency | ms |
+
+##### Database Schema
+
+```sql
+CREATE TABLE alert_rules (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id),
+    name VARCHAR(255) NOT NULL,
+    alert_type VARCHAR(20) NOT NULL,  -- 'threshold', 'spike', 'no_data'
+    metric VARCHAR(50) NOT NULL,       -- 'error_rate', 'avg_latency', etc
+    scope_type VARCHAR(20) NOT NULL,   -- 'all', 'server', 'gateway'
+    scope_id UUID,
+    operator VARCHAR(10) NOT NULL,     -- 'above', 'below'
+    threshold FLOAT NOT NULL,
+    duration_minutes INT NOT NULL,
+    notify_dashboard BOOLEAN DEFAULT true,
+    enabled BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE alert_history (
+    id UUID PRIMARY KEY,
+    rule_id UUID REFERENCES alert_rules(id),
+    triggered_at TIMESTAMPTZ DEFAULT NOW(),
+    resolved_at TIMESTAMPTZ,
+    trigger_value FLOAT NOT NULL,
+    status VARCHAR(20) NOT NULL  -- 'triggered', 'resolved', 'acknowledged'
+);
+```
+
+##### API Endpoints
+
+| Method | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/api/alerts` | Listar regras |
+| POST | `/api/alerts` | Criar regra |
+| PUT | `/api/alerts/{id}` | Atualizar regra |
+| DELETE | `/api/alerts/{id}` | Deletar regra |
+| GET | `/api/alerts/history` | Histórico |
+| POST | `/api/alerts/{id}/acknowledge` | Marcar como visto |
+
+##### Tarefas
+
+- [ ] Migração: Tabela `alert_rules`
+- [ ] Migração: Tabela `alert_history`
+- [ ] Backend: Job de verificação (cron 1min)
+- [ ] API: CRUD de regras
+- [ ] Frontend: `AlertBuilder.vue` (modal 3 steps)
+- [ ] Frontend: `AlertsList.vue` (página de regras)
 - [ ] Frontend: Painel de alertas ativos no dashboard
-- [ ] (Futuro) Integração com email/Slack/webhook
+- [ ] (Futuro) Email/Slack/webhook
 
 ---
 
