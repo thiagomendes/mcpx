@@ -121,14 +121,103 @@ async fn handle_server_proxy(
         success,
     ).await;
 
-    let response = result
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)))?;
-    
-    if method == "tools/list" {
-        return filter_tools_response(response, &governance).await;
+    // Handle result and capture response body for audit
+    match result {
+        Ok(response) => {
+            let status_code = response.status().as_u16() as i32;
+            
+            // Read response body bytes to capture for audit
+            let (parts, body) = response.into_parts();
+            let body_bytes = axum::body::to_bytes(body, 10 * 1024 * 1024)
+                .await
+                .unwrap_or_default();
+            
+            // Parse response body as JSON for audit log
+            // First try direct JSON, then try extracting from SSE format (data: {...})
+            let response_body_json: Option<serde_json::Value> = serde_json::from_slice(&body_bytes).ok()
+                .or_else(|| {
+                    // Try to parse as SSE - extract JSON from "data: {...}" lines
+                    let body_str = std::str::from_utf8(&body_bytes).ok()?;
+                    for line in body_str.lines() {
+                        if let Some(json_str) = line.strip_prefix("data: ") {
+                            if let Ok(json) = serde_json::from_str(json_str) {
+                                return Some(json);
+                            }
+                        }
+                    }
+                    None
+                });
+            
+            // Check if JSON-RPC response contains an error
+            let has_jsonrpc_error = response_body_json
+                .as_ref()
+                .and_then(|v| v.get("error"))
+                .map(|e| !e.is_null())
+                .unwrap_or(false);
+            
+            let actual_success = status_code >= 200 && status_code < 300 && !has_jsonrpc_error;
+            
+            // Extract error message if present
+            let error_message = if has_jsonrpc_error {
+                response_body_json
+                    .as_ref()
+                    .and_then(|v| v.get("error"))
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            };
+            
+            // Record audit log with full request/response
+            let _ = crate::services::audit::record_audit_log(
+                &state.db.pool,
+                server.user_id,
+                "server",
+                server.id,
+                &server.name,
+                Some(method),
+                tool_name.as_deref(),
+                Some(request.clone()),
+                response_body_json,
+                status_code,
+                error_message.as_deref(),
+                latency_ms,
+                actual_success,
+                None,
+            ).await;
+            
+            // Reconstruct response with the same body
+            let response = Response::from_parts(parts, Body::from(body_bytes));
+            
+            if method == "tools/list" {
+                return filter_tools_response(response, &governance).await;
+            }
+            
+            Ok(response)
+        }
+        Err(msg) => {
+            // Record audit log for error case
+            let _ = crate::services::audit::record_audit_log(
+                &state.db.pool,
+                server.user_id,
+                "server",
+                server.id,
+                &server.name,
+                Some(method),
+                tool_name.as_deref(),
+                Some(request.clone()),
+                None,
+                502,
+                Some(&msg),
+                latency_ms,
+                false,
+                None,
+            ).await;
+            
+            Err((StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, msg)))
+        }
     }
-    
-    Ok(response)
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -225,7 +314,97 @@ async fn handle_gateway_proxy(
         success,
     ).await;
 
-    result
+    // Handle result and capture response body for audit
+    match result {
+        Ok(response) => {
+            let status_code = response.status().as_u16() as i32;
+            
+            // Read response body bytes to capture for audit
+            let (parts, body) = response.into_parts();
+            let body_bytes = axum::body::to_bytes(body, 10 * 1024 * 1024)
+                .await
+                .unwrap_or_default();
+            
+            // Parse response body as JSON for audit log
+            // First try direct JSON, then try extracting from SSE format (data: {...})
+            let response_body_json: Option<serde_json::Value> = serde_json::from_slice(&body_bytes).ok()
+                .or_else(|| {
+                    // Try to parse as SSE - extract JSON from "data: {...}" lines
+                    let body_str = std::str::from_utf8(&body_bytes).ok()?;
+                    for line in body_str.lines() {
+                        if let Some(json_str) = line.strip_prefix("data: ") {
+                            if let Ok(json) = serde_json::from_str(json_str) {
+                                return Some(json);
+                            }
+                        }
+                    }
+                    None
+                });
+            
+            // Check if JSON-RPC response contains an error
+            let has_jsonrpc_error = response_body_json
+                .as_ref()
+                .and_then(|v| v.get("error"))
+                .map(|e| !e.is_null())
+                .unwrap_or(false);
+            
+            let actual_success = status_code >= 200 && status_code < 300 && !has_jsonrpc_error;
+            
+            // Extract error message if present
+            let error_message = if has_jsonrpc_error {
+                response_body_json
+                    .as_ref()
+                    .and_then(|v| v.get("error"))
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            };
+            
+            // Record audit log with full request/response
+            let _ = crate::services::audit::record_audit_log(
+                &state.db.pool,
+                user_id,
+                "gateway",
+                gateway.id,
+                &gateway.name,
+                Some(method),
+                tool_name.as_deref(),
+                Some(request.clone()),
+                response_body_json,
+                status_code,
+                error_message.as_deref(),
+                latency_ms,
+                actual_success,
+                None,
+            ).await;
+            
+            // Reconstruct response with the same body
+            Ok(Response::from_parts(parts, Body::from(body_bytes)))
+        }
+        Err((status, msg)) => {
+            // Record audit log for error case
+            let _ = crate::services::audit::record_audit_log(
+                &state.db.pool,
+                user_id,
+                "gateway",
+                gateway.id,
+                &gateway.name,
+                Some(method),
+                tool_name.as_deref(),
+                Some(request.clone()),
+                None,
+                status.as_u16() as i32,
+                Some(&msg),
+                latency_ms,
+                false,
+                None,
+            ).await;
+            
+            Err((status, msg))
+        }
+    }
 }
 
 async fn handle_gateway_initialize(

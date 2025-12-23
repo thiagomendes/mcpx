@@ -58,11 +58,29 @@ export interface QueryResponse {
     }
 }
 
+export interface SummaryStats {
+    // Latency (ms)
+    latency_avg: number | null
+    latency_p50: number | null
+    latency_p95: number | null
+    latency_p99: number | null
+    latency_max: number | null
+    // Throughput (req/min)
+    throughput_avg: number | null
+    throughput_min: number | null
+    throughput_max: number | null
+    // Counts
+    total_requests: number
+    error_count: number
+    error_rate: number
+}
+
 export const useMetricsStore = defineStore('metrics', () => {
     const todayMetrics = ref<TodayMetrics>({ servers: 0, gateways: 0 })
     const hourlyStats = ref<HourlyStat[]>([])
     const targetMetrics = ref<TargetMetrics[]>([])
     const queryResponse = ref<QueryResponse | null>(null)
+    const summaryStats = ref<SummaryStats | null>(null)
     const loading = ref(false)
     const error = ref<string | null>(null)
 
@@ -117,16 +135,30 @@ export const useMetricsStore = defineStore('metrics', () => {
         }
     }
 
+    async function fetchSummary(hours: number = 24, targetName?: string) {
+        try {
+            const params = new URLSearchParams()
+            params.append('hours', String(hours))
+            if (targetName) params.append('target_name', targetName)
+            const response = await api.get(`/metrics/summary?${params.toString()}`)
+            summaryStats.value = response.data
+        } catch {
+            summaryStats.value = null
+        }
+    }
+
     return {
         todayMetrics,
         hourlyStats,
         targetMetrics,
         queryResponse,
+        summaryStats,
         loading,
         error,
         fetchTodayMetrics,
         fetchHourlyStats,
         fetchByTarget,
         queryMetrics,
+        fetchSummary,
     }
 })
