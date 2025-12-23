@@ -1,9 +1,9 @@
 # mcpx - Product Specification
 
-**Version:** 1.0
-**Status:** Product Proposal
+**Version:** 1.1
+**Status:** Active Development
 **Owner:** TM Dev Lab
-**Last Updated:** 2025-12-17
+**Last Updated:** 2025-12-23
 
 ---
 
@@ -523,6 +523,57 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX idx_audit_logs_server_id ON audit_logs(server_id);
 ```
 
+### 007_request_metrics.sql (TimescaleDB)
+
+> **Requires:** TimescaleDB extension enabled in PostgreSQL
+
+```sql
+-- Enable TimescaleDB
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+-- Request metrics hypertable (time-series data)
+CREATE TABLE request_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    user_id UUID NOT NULL,
+    target_type VARCHAR(10) NOT NULL,  -- 'server' or 'gateway'
+    target_id UUID NOT NULL,
+    target_name VARCHAR(255) NOT NULL,
+    method VARCHAR(50),
+    tool_name VARCHAR(255),  -- Actual tool name from tools/call requests
+    latency_ms INT,
+    success BOOLEAN NOT NULL DEFAULT true
+);
+
+-- Convert to hypertable (auto-partitioned by time)
+SELECT create_hypertable('request_metrics', 'time');
+
+CREATE INDEX idx_metrics_user_time ON request_metrics (user_id, time DESC);
+CREATE INDEX idx_metrics_target_time ON request_metrics (target_id, time DESC);
+CREATE INDEX idx_metrics_tool_name ON request_metrics (tool_name);
+
+-- Retention policy: 90 days for raw data
+SELECT add_retention_policy('request_metrics', INTERVAL '90 days');
+
+-- Continuous aggregate: hourly stats (auto-updated every 5 minutes)
+CREATE MATERIALIZED VIEW request_metrics_hourly
+WITH (timescaledb.continuous) AS
+SELECT 
+    time_bucket('1 hour', time) AS bucket,
+    user_id, target_type, target_id, target_name, method, tool_name,
+    COUNT(*) AS total,
+    COUNT(*) FILTER (WHERE success) AS success_count,
+    AVG(latency_ms)::INT AS avg_latency_ms
+FROM request_metrics
+GROUP BY bucket, user_id, target_type, target_id, target_name, method, tool_name
+WITH NO DATA;
+
+-- Refresh policy: every 5 minutes
+SELECT add_continuous_aggregate_policy('request_metrics_hourly',
+    start_offset => INTERVAL '2 hours',
+    end_offset => INTERVAL '1 minute',
+    schedule_interval => INTERVAL '5 minutes');
+```
+
 ---
 
 # API REFERENCE
@@ -721,6 +772,83 @@ curl -X POST -H "Content-Type: application/json" \
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   "https://mcpx.app/api/audit?server=github&limit=10"
+```
+
+## Metrics API
+
+Real-time analytics using TimescaleDB time-series data.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/metrics/today` | Get today's summary metrics |
+| `GET` | `/metrics/hourly` | Get hourly stats (by target) |
+| `POST` | `/metrics/query` | Flexible query with grouping and filters |
+
+### Today's Metrics
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://mcpx.app/api/metrics/today
+```
+
+```json
+{
+  "total_requests": 4607,
+  "success_count": 4607,
+  "error_count": 0,
+  "avg_latency_ms": 2500
+}
+```
+
+### Flexible Query
+
+The `/metrics/query` endpoint supports dynamic grouping, filtering, and time bucketing.
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "time_range_hours": 6,
+    "group_by": ["time_bucket", "tool_name"],
+    "bucket_size": "15m",
+    "filters": [
+      { "field": "target_name", "op": "eq", "value": "deepwiki" }
+    ]
+  }' \
+  https://mcpx.app/api/metrics/query
+```
+
+#### Query Parameters
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `time_range_hours` | float | Time range from now (0.25 = 15min, 6 = 6h, 168 = 7d) |
+| `group_by` | array | Grouping fields: `time_bucket`, `target_name`, `tool_name`, `method` |
+| `bucket_size` | string | Time bucket size: `5m`, `15m`, `1h` |
+| `filters` | array | Filter conditions |
+
+#### Filter Operators
+
+| Operator | Description |
+|----------|-------------|
+| `eq` | Equals |
+| `neq` | Not equals |
+| `is_not_null` | Field is not null |
+
+#### Response
+
+```json
+{
+  "data": [
+    {
+      "bucket": "2024-01-15T10:00:00Z",
+      "target_name": "deepwiki",
+      "tool": "ask_question",
+      "count": 150,
+      "success_count": 148,
+      "avg_latency_ms": 2300
+    }
+  ]
+}
 ```
 
 ---
@@ -3068,6 +3196,75 @@ async fn main() {
    - Implement users table migration
    - Setup Google OAuth callback
    - Create first API endpoint (GET /auth/me)
+
+---
+
+# OBSERVABILITY PLATFORM
+
+> **Technology:** TimescaleDB (PostgreSQL extension for time-series data)
+
+## Overview
+
+MCPX includes a comprehensive observability platform for monitoring, logging, and auditing all MCP proxy activity.
+
+```mermaid
+flowchart LR
+    subgraph "Data Collection"
+        Proxy[MCP Proxy] -->|record| Metrics[(request_metrics)]
+        Proxy -->|log| Logs[(request_logs)]
+        API[API Routes] -->|audit| Audit[(audit_events)]
+    end
+    
+    subgraph "TimescaleDB"
+        Metrics -->|aggregate| Hourly[Hourly Stats]
+        Metrics -->|aggregate| Daily[Daily Stats]
+    end
+    
+    subgraph "Consumption"
+        Hourly --> Dashboard[Dashboard]
+        Daily --> Analytics[Analytics]
+        Audit --> Trail[Audit Trail]
+    end
+```
+
+## Phase 1: Esta Entrega
+
+| Feature | Escopo | Hypertable | Retention |
+|---------|--------|------------|-----------|
+| **Request Metrics** | Completo | `request_metrics` | 90 days |
+| **Server Logs** | Schema only | `request_logs` | 30 days |
+| **Audit Trail** | Schema only | `audit_events` | 365 days |
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/metrics/today` | Today's request count by target type |
+| `GET` | `/api/metrics/hourly?hours=24` | Hourly breakdown with latency |
+
+### Response Examples
+
+```json
+// GET /api/metrics/today
+{
+  "servers": 142,
+  "gateways": 58
+}
+
+// GET /api/metrics/hourly?hours=24
+[
+  { "bucket": "2024-01-15T10:00:00Z", "total": 23, "avg_latency_ms": 145 },
+  { "bucket": "2024-01-15T11:00:00Z", "total": 31, "avg_latency_ms": 132 }
+]
+```
+
+## Phase 2: Próxima Entrega
+
+| Feature | Description |
+|---------|-------------|
+| **Analytics Dashboard** | Charts, top tools, trends visualization |
+| **Rate Limiting** | Time-window counters, blocking middleware |
+| **Alerting** | Error spike detection, notifications |
 
 ---
 

@@ -3,3 +3,4 @@ pub mod crypto;
 pub mod health_check;
 pub mod oauth_provider;
 pub mod mcp_client;
+pub mod metrics;
