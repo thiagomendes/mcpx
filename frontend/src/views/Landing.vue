@@ -4,14 +4,9 @@
     <header class="border-b border-border">
       <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 bg-gradient-primary rounded-lg flex items-center justify-center">
-            <BoltIcon class="w-6 h-6 text-white" />
-          </div>
+          <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-10 h-10 object-contain" />
           <span class="text-xl font-bold text-gradient">mcpx</span>
         </div>
-        <router-link to="/login" class="btn btn-primary">
-          Get Started
-        </router-link>
       </div>
     </header>
 
@@ -70,5 +65,5 @@
 </template>
 
 <script setup lang="ts">
-import { BoltIcon, LinkIcon, ShieldCheckIcon, ChartBarIcon } from '@heroicons/vue/24/outline'
+import { LinkIcon, ShieldCheckIcon, ChartBarIcon } from '@heroicons/vue/24/outline'
 </script>
