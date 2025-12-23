@@ -70,13 +70,37 @@
         <div class="text-3xl font-bold" :class="errorRateClass">{{ errorRateFormatted }}</div>
         <div class="text-sm text-gray-400">Error Rate</div>
       </div>
+
+      <!-- Latency Card with Toggle -->
       <div class="card text-center">
-        <div class="text-3xl font-bold text-blue-400">{{ avgLatencyFormatted }}</div>
-        <div class="text-sm text-gray-400">Avg Latency</div>
+        <div class="text-3xl font-bold text-blue-400">{{ currentLatencyFormatted }}</div>
+        <div class="text-sm text-gray-400 mb-2">{{ latencyModeLabel }} Latency</div>
+        <div class="flex justify-center gap-1">
+          <button 
+            v-for="mode in latencyModes" :key="mode.key"
+            @click="selectedLatencyMode = mode.key"
+            class="px-2 py-0.5 text-xs rounded transition-colors"
+            :class="selectedLatencyMode === mode.key ? 'bg-blue-500 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
+          >
+            {{ mode.label }}
+          </button>
+        </div>
       </div>
+
+      <!-- Throughput Card with Toggle -->
       <div class="card text-center">
-        <div class="text-3xl font-bold text-purple-400">{{ requestRateFormatted }}</div>
-        <div class="text-sm text-gray-400">req/min</div>
+        <div class="text-3xl font-bold text-purple-400">{{ currentThroughputFormatted }}</div>
+        <div class="text-sm text-gray-400 mb-2">{{ throughputModeLabel }} req/min</div>
+        <div class="flex justify-center gap-1">
+          <button 
+            v-for="mode in throughputModes" :key="mode.key"
+            @click="selectedThroughputMode = mode.key"
+            class="px-2 py-0.5 text-xs rounded transition-colors"
+            :class="selectedThroughputMode === mode.key ? 'bg-purple-500 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
+          >
+            {{ mode.label }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -200,6 +224,27 @@ const toolCallsTimeData = ref<{ labels: string[], datasets: any[] }>({ labels: [
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
+// Toggle modes for cards
+type LatencyMode = 'avg' | 'p50' | 'p95' | 'p99' | 'max'
+type ThroughputMode = 'avg' | 'min' | 'max'
+
+const selectedLatencyMode = ref<LatencyMode>('avg')
+const selectedThroughputMode = ref<ThroughputMode>('avg')
+
+const latencyModes = [
+  { key: 'avg' as LatencyMode, label: 'avg' },
+  { key: 'p50' as LatencyMode, label: 'p50' },
+  { key: 'p95' as LatencyMode, label: 'p95' },
+  { key: 'p99' as LatencyMode, label: 'p99' },
+  { key: 'max' as LatencyMode, label: 'max' },
+]
+
+const throughputModes = [
+  { key: 'avg' as ThroughputMode, label: 'avg' },
+  { key: 'min' as ThroughputMode, label: 'min' },
+  { key: 'max' as ThroughputMode, label: 'max' },
+]
+
 // Persist settings
 watch(selectedHours, (val) => localStorage.setItem('mcpx_dashboard_hours', String(val)))
 watch(autoRefresh, (val) => localStorage.setItem('mcpx_dashboard_autorefresh', String(val)))
@@ -234,6 +279,43 @@ const requestRate = computed(() => {
 })
 
 const requestRateFormatted = computed(() => requestRate.value.toFixed(1))
+
+// Computed values from summaryStats for toggle cards
+const summary = computed(() => metricsStore.summaryStats)
+
+const currentLatency = computed(() => {
+  if (!summary.value) return avgLatency.value
+  switch (selectedLatencyMode.value) {
+    case 'avg': return summary.value.latency_avg ?? avgLatency.value
+    case 'p50': return summary.value.latency_p50 ?? 0
+    case 'p95': return summary.value.latency_p95 ?? 0
+    case 'p99': return summary.value.latency_p99 ?? 0
+    case 'max': return summary.value.latency_max ?? 0
+    default: return avgLatency.value
+  }
+})
+
+const currentLatencyFormatted = computed(() => formatLatency(currentLatency.value))
+const latencyModeLabel = computed(() => {
+  const mode = latencyModes.find(m => m.key === selectedLatencyMode.value)
+  return mode?.label.toUpperCase() || 'AVG'
+})
+
+const currentThroughput = computed(() => {
+  if (!summary.value) return requestRate.value
+  switch (selectedThroughputMode.value) {
+    case 'avg': return summary.value.throughput_avg ?? requestRate.value
+    case 'min': return summary.value.throughput_min ?? 0
+    case 'max': return summary.value.throughput_max ?? 0
+    default: return requestRate.value
+  }
+})
+
+const currentThroughputFormatted = computed(() => (currentThroughput.value ?? 0).toFixed(1))
+const throughputModeLabel = computed(() => {
+  const mode = throughputModes.find(m => m.key === selectedThroughputMode.value)
+  return mode?.label.toUpperCase() || 'AVG'
+})
 
 
 
@@ -381,6 +463,7 @@ async function refreshAll() {
       }),
       metricsStore.fetchByTarget(selectedHours.value),
       metricsStore.fetchTodayMetrics(),
+      metricsStore.fetchSummary(selectedHours.value, selectedServer.value || undefined),
       fetchToolCallsTimeData(),
       fetchToolLatencyTimeData()
     ])

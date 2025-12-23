@@ -142,6 +142,11 @@ async fn main() {
         .route("/api/metrics/hourly", get(routes::metrics::get_hourly))
         .route("/api/metrics/by-target", get(routes::metrics::get_by_target))
         .route("/api/metrics/query", post(routes::metrics::query))
+        .route("/api/metrics/summary", get(routes::metrics::get_summary))
+    
+        // Audit Logs
+        .route("/api/audit", get(routes::audit::list_audit_logs))
+        .route("/api/audit/:id", get(routes::audit::get_audit_log))
     
         // MCP Proxy
         .route("/mcp/:user_id/:server_name", post(routes::proxy::mcp_proxy))

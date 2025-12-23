@@ -6,3 +6,4 @@ pub mod proxy;
 pub mod governance;
 pub mod gateways;
 pub mod metrics;
+pub mod audit;

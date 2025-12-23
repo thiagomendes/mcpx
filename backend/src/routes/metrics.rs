@@ -101,3 +101,30 @@ pub async fn query(
     Ok(Json(response))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SummaryParams {
+    #[serde(default = "default_hours")]
+    pub hours: f64,
+    pub target_name: Option<String>,
+}
+
+/// GET /api/metrics/summary?hours=6&target_name=deepwiki
+/// Returns summary stats with percentiles for dashboard cards
+pub async fn get_summary(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<SummaryParams>,
+) -> Result<Json<metrics::SummaryStats>, (StatusCode, String)> {
+    let user_id = get_user_id(&headers, &state).await?;
+
+    let stats = metrics::get_summary_stats(
+        &state.db.pool, 
+        user_id, 
+        params.hours,
+        params.target_name.as_deref(),
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
+    Ok(Json(stats))
+}

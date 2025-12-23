@@ -34,6 +34,14 @@
           <RectangleStackIcon class="w-5 h-5" />
           Gateways
         </router-link>
+        <router-link 
+          to="/audit" 
+          class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-background-hover transition-colors"
+          active-class="!text-white !bg-background-hover"
+        >
+          <ClipboardDocumentListIcon class="w-5 h-5" />
+          Audit Logs
+        </router-link>
       </nav>
 
       <!-- User -->
@@ -76,6 +84,7 @@ import {
   Squares2X2Icon, 
   ServerIcon, 
   RectangleStackIcon,
+  ClipboardDocumentListIcon,
   ArrowRightOnRectangleIcon 
 } from '@heroicons/vue/24/outline'
 

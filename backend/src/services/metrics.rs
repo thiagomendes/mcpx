@@ -130,7 +130,7 @@ pub async fn get_metrics_by_target(
                AVG(latency_ms)::INT as avg_latency_ms
         FROM request_metrics
         WHERE user_id = $1
-          AND recorded_at >= NOW() - ($2 || ' hours')::INTERVAL
+          AND time >= NOW() - ($2 || ' hours')::INTERVAL
         GROUP BY target_type, target_id, target_name
         ORDER BY total DESC
         "#,
@@ -356,3 +356,114 @@ fn parse_bucket_size(s: &str) -> String {
     }
 }
 
+// ============================================
+// SUMMARY STATS WITH PERCENTILES
+// ============================================
+
+#[derive(Debug, Serialize)]
+pub struct SummaryStats {
+    // Latency stats (in ms)
+    pub latency_avg: Option<f64>,
+    pub latency_p50: Option<f64>,
+    pub latency_p95: Option<f64>,
+    pub latency_p99: Option<f64>,
+    pub latency_max: Option<f64>,
+    
+    // Throughput stats (req/min)
+    pub throughput_avg: Option<f64>,
+    pub throughput_min: Option<f64>,
+    pub throughput_max: Option<f64>,
+    
+    // Counts
+    pub total_requests: i64,
+    pub error_count: i64,
+    pub error_rate: f64,
+}
+
+/// Get summary stats with percentiles for dashboard cards
+pub async fn get_summary_stats(
+    pool: &PgPool,
+    user_id: Uuid,
+    hours: f64,
+    target_name: Option<&str>,
+) -> Result<SummaryStats, sqlx::Error> {
+    // Build WHERE clause
+    let target_filter = match target_name {
+        Some(name) if !name.is_empty() => format!("AND target_name = '{}'", name.replace('\'', "''")),
+        _ => String::new(),
+    };
+    
+    // Query for latency percentiles
+    let latency_sql = format!(
+        r#"
+        SELECT 
+            AVG(latency_ms)::FLOAT8 as avg,
+            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY latency_ms)::FLOAT8 as p50,
+            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)::FLOAT8 as p95,
+            PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_ms)::FLOAT8 as p99,
+            MAX(latency_ms)::FLOAT8 as max,
+            COUNT(*)::BIGINT as total,
+            SUM(CASE WHEN NOT success THEN 1 ELSE 0 END)::BIGINT as errors
+        FROM request_metrics
+        WHERE user_id = $1
+          AND time >= NOW() - ($2 || ' hours')::INTERVAL
+          {}
+        "#,
+        target_filter
+    );
+    
+    let latency_row: (Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<f64>, i64, i64) = 
+        sqlx::query_as(&latency_sql)
+            .bind(user_id)
+            .bind(hours)
+            .fetch_one(pool)
+            .await?;
+    
+    // Query for throughput (requests per minute using 1-minute buckets)
+    let throughput_sql = format!(
+        r#"
+        SELECT 
+            AVG(cnt)::FLOAT8 as avg,
+            MIN(cnt)::FLOAT8 as min,
+            MAX(cnt)::FLOAT8 as max
+        FROM (
+            SELECT time_bucket('1 minute', time) as bucket, COUNT(*)::FLOAT8 as cnt
+            FROM request_metrics
+            WHERE user_id = $1
+              AND time >= NOW() - ($2 || ' hours')::INTERVAL
+              {}
+            GROUP BY bucket
+        ) sub
+        "#,
+        target_filter
+    );
+    
+    let throughput_row: (Option<f64>, Option<f64>, Option<f64>) = 
+        sqlx::query_as(&throughput_sql)
+            .bind(user_id)
+            .bind(hours)
+            .fetch_one(pool)
+            .await?;
+    
+    let total_requests = latency_row.5;
+    let error_count = latency_row.6;
+    let error_rate = if total_requests > 0 {
+        (error_count as f64 / total_requests as f64) * 100.0
+    } else {
+        0.0
+    };
+    
+    Ok(SummaryStats {
+        latency_avg: latency_row.0,
+        latency_p50: latency_row.1,
+        latency_p95: latency_row.2,
+        latency_p99: latency_row.3,
+        latency_max: latency_row.4,
+        throughput_avg: throughput_row.0,
+        throughput_min: throughput_row.1,
+        throughput_max: throughput_row.2,
+        total_requests,
+        error_count,
+        error_rate,
+    })
+}
