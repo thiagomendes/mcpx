@@ -55,11 +55,22 @@ call_tool() {
     local success=0
     local failed=0
     
+    # Build arguments based on tool type
+    local args
+    case "$tool" in
+        echo)       args='{\"message\":\"test message from load test\"}' ;;
+        add)        args='{\"a\":5,\"b\":3}' ;;
+        sampleLLM)  args='{\"prompt\":\"Hello from load test\",\"maxTokens\":10}' ;;
+        getTinyImage) args='{}' ;;
+        longRunningOperation) args='{\"duration\":1,\"steps\":2}' ;;
+        *)          args='{}' ;;
+    esac
+    
     for ((i=1; i<=count; i++)); do
         http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$url" \
             -H "Content-Type: application/json" \
             -H "mcp-session-id: $session" \
-            -d "{\"jsonrpc\":\"2.0\",\"id\":$i,\"method\":\"tools/call\",\"params\":{\"name\":\"$tool\",\"arguments\":{}}}" 2>/dev/null || echo "000")
+            -d "{\"jsonrpc\":\"2.0\",\"id\":$i,\"method\":\"tools/call\",\"params\":{\"name\":\"$tool\",\"arguments\":$args}}" 2>/dev/null || echo "000")
         
         if [[ "$http_code" == "200" ]]; then
             ((success++))

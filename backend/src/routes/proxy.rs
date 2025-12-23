@@ -284,14 +284,35 @@ async fn handle_gateway_proxy(
     };
     
     let result = match method {
-        "initialize" => handle_gateway_initialize(state, &gateway, user_id, &servers, headers, body_bytes.to_vec()).await,
-        "tools/list" => handle_gateway_tools_list(state, &gateway, &servers, headers, &request, body_bytes.to_vec()).await,
-        "tools/call" => handle_gateway_tools_call(state, &gateway, &servers, headers, &request, body_bytes.to_vec()).await,
+        "initialize" => handle_gateway_initialize(state, &gateway, user_id, &servers, headers.clone(), body_bytes.to_vec()).await,
+        "tools/list" => handle_gateway_tools_list(state, &gateway, &servers, headers.clone(), &request, body_bytes.to_vec()).await,
+        "tools/call" => handle_gateway_tools_call(state, &gateway, &servers, headers.clone(), &request, body_bytes.to_vec()).await,
         _ => {
+            // For other methods (like notifications/initialized), translate gateway session to server session
             if let Some(server) = servers.first() {
                 let auth_headers = build_auth_headers(state, server).await
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
-                forward_request(&server.url, headers, auth_headers, body_bytes.to_vec()).await
+                
+                // Get gateway session ID from headers and translate to server session
+                let mut modified_headers = headers.clone();
+                if let Some(gw_session) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok()) {
+                    if gw_session.starts_with("gw_") {
+                        // Look up server session from gateway session
+                        if let Ok(Some(server_sessions)) = sqlx::query_scalar::<_, serde_json::Value>(SQL_SELECT_GATEWAY_SESSION)
+                            .bind(gw_session)
+                            .fetch_optional(&state.db.pool)
+                            .await
+                        {
+                            if let Some(server_session) = server_sessions.get(&server.name).and_then(|v| v.as_str()) {
+                                if let Ok(header_value) = server_session.parse() {
+                                    modified_headers.insert("mcp-session-id", header_value);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                forward_request(&server.url, modified_headers, auth_headers, body_bytes.to_vec()).await
                     .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)))
             } else {
                 Err((StatusCode::BAD_REQUEST, "No servers in gateway".to_string()))
