@@ -10,11 +10,17 @@ Coding best practices and conventions for this project.
 backend/                  # Rust + Axum
 ├── src/
 │   ├── main.rs          # Routes and server setup
+│   ├── config.rs        # Environment configuration
 │   ├── messages.rs      # Centralized error messages
 │   ├── routes/          # HTTP handlers
+│   │   ├── proxy.rs     # MCP Proxy with governance
+│   │   ├── metrics.rs   # Metrics API endpoints
+│   │   └── ...
 │   ├── services/        # Business logic
+│   │   ├── metrics.rs   # TimescaleDB metrics service
+│   │   └── ...
 │   └── models/          # Structs and types
-├── migrations/          # SQL migrations (sqlx)
+├── migrations/          # SQL migrations (sqlx + TimescaleDB)
 └── Cargo.toml
 
 frontend/                 # Vue 3 + TypeScript + Vite
@@ -25,12 +31,20 @@ frontend/                 # Vue 3 + TypeScript + Vite
 │   ├── lib/             # Utilities and abstractions
 │   ├── stores/          # Pinia stores
 │   └── views/           # Pages
+│       └── dashboard/
+│           └── Dashboard.vue  # Metrics dashboard
 ├── eslint.config.js
 └── package.json
 
+scripts/                  # Utility scripts
+└── load-test.sh         # MCP load test (low/medium/high profiles)
+
 docs/                     # Documentation
 ├── PROGRESS.md          # Project status
-└── GOVERNANCE_TEST_SCRIPT.md  # Test script
+├── INFRA.md             # Infrastructure guide
+├── SPEC.md              # Product specification
+├── GOVERNANCE_TEST_SCRIPT.md  # Governance test script
+└── TEST_SERVERS.md      # Test MCP servers
 ```
 
 ---
@@ -91,12 +105,16 @@ docs/                     # Documentation
 | Error messages (backend) | `backend/src/messages.rs` |
 | Constants (frontend) | `frontend/src/constants.ts` |
 | MCP Proxy routes | `backend/src/routes/proxy.rs` |
+| Metrics API | `backend/src/routes/metrics.rs` |
+| Metrics Service | `backend/src/services/metrics.rs` |
+| Dashboard UI | `frontend/src/views/dashboard/Dashboard.vue` |
 | Governance API | `backend/src/routes/governance.rs` |
 | Governance UI | `frontend/src/components/ui/ToolGovernance.vue` |
 | OAuth providers (backend) | `backend/src/services/oauth_provider.rs` |
 | Identity providers (frontend) | `frontend/src/lib/identityProviders.ts` |
 | Governance tests | `frontend/src/components/__tests__/ToolGovernance.spec.ts` |
 | SQL migrations | `backend/migrations/` |
+| Load test script | `scripts/load-test.sh` |
 
 ---
 

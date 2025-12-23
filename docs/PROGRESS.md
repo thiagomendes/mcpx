@@ -1,51 +1,35 @@
-# MCPX - Estado do Projeto e Próximos Passos
+# MCPX - Estado do Projeto
 
-**Última atualização:** 2025-12-22 19:30
+**Última atualização:** 2025-12-23
 **Branch:** feature/request-metrics
 
 ---
 
-## 🚧 EM DESENVOLVIMENTO
+## ✅ IMPLEMENTADO E FUNCIONANDO
 
 ### Observability Platform (TimescaleDB)
 
-**Status:** 🔄 **EM ANDAMENTO**
+**Status:** ✅ **COMPLETO**
 
-**Estratégia:** TimescaleDB (extensão PostgreSQL para time-series)
-
-#### Phase 1: Esta Entrega
-
-| Feature | Escopo | Status |
-|---------|--------|--------|
-| **Request Metrics** | Completo (migration + service + API + dashboard) | 🔄 |
-| **Server Logs** | Schema only (hypertable) | ⏳ |
-| **Audit Trail** | Schema only (hypertable) | ⏳ |
-
-**Checklist:**
-- [/] Migration com hypertables e continuous aggregates
-- [ ] Serviço de métricas (`services/metrics.rs`)
-- [ ] Integração no proxy.rs (timing + record)
-- [ ] API routes (`/api/metrics/today`, `/api/metrics/hourly`)
-- [ ] Dashboard com contadores reais
-- [ ] Testes unitários
-
-#### Phase 2: Próxima Entrega
-
-| Feature | Descrição |
-|---------|-----------|
-| **Analytics Dashboard** | Gráficos, top tools, tendências |
-| **Rate Limiting** | Contador por janela, middleware |
-| **Alerting** | Picos de erro, notificações |
-
-**Benefícios da abordagem:**
-- Particionamento automático por tempo
+**Infraestrutura:**
+- TimescaleDB (PostgreSQL 15 com extensão time-series)
+- Hypertables para `request_metrics` com particionamento automático
+- Continuous aggregates para métricas horárias
 - Retenção configurável (90 dias raw, 1 ano aggregates)
-- Continuous aggregates para performance
-- Mesmo PostgreSQL, sem nova infraestrutura
+
+**Features implementadas:**
+
+| Feature | Descrição | Status |
+|---------|-----------|--------|
+| Request Metrics | Coleta de latência, success rate, tool_name | ✅ |
+| Tool Name Tracking | Extração de tool name de `tools/call` requests | ✅ |
+| Flexible Query API | `/api/metrics/query` com group_by, filters, time_bucket | ✅ |
+| Dashboard Charts | Server Requests, Server Latency, Tool Calls, Tool Latency | ✅ |
+| Time Range Selection | 15min, 1h, 6h, 24h, 7d | ✅ |
+| Server Filter | Filtrar métricas por servidor específico | ✅ |
+| Load Test Script | `scripts/load-test.sh` com profiles low/medium/high | ✅ |
 
 ---
-
-## ✅ IMPLEMENTADO E FUNCIONANDO
 
 ### Virtual Gateways
 
@@ -55,50 +39,61 @@
 - Gateway CRUD (create, read, update, delete)
 - Proxy routing com governance prefix
 - UI: lista, detalhes, gerenciamento de servidores
-- Dashboard com seção dedicada
 - 8 testes unitários (frontend)
 
 ---
 
-### Tool Governance (`/servers/:name/governance`)
-
-**Status:** ✅ **VALIDADO** - 8 casos de teste passaram!
-
-- Allowlist/Blocklist de tools
-- Prefix global (ex: `cf_search_docs`)
-- Validação no tools/call
-- UI completa com chips clicáveis
-
----
-
-### Code Quality Refactoring
+### Tool Governance
 
 **Status:** ✅ **COMPLETO**
 
-- Backend: mensagens centralizadas, SQL constants, OAuth abstraction
-- Frontend: ESLint configurado, constants centralizados
-- Clippy warnings: 10 | ESLint warnings: 0
-- **37 testes passando** (20 backend + 17 frontend)
+- Allowlist/Blocklist de tools
+- Prefix global (ex: `cf_search_docs`)
+- Validação no `tools/call`
+- UI completa com chips clicáveis
+- 9 testes unitários (frontend)
 
 ---
 
 ### MCP Proxy Layer
 
-**Status:** ✅ **VALIDADO**
+**Status:** ✅ **COMPLETO**
 
 - Multi-tenant isolation (`/mcp/:user_id/:server_name`)
 - Auth injection (API Key, Bearer, OAuth)
 - Governance filter integrado
+- Tool name extraction para métricas
 
 ---
 
 ### OAuth 2.1 Auto-discovery
+
+**Status:** ✅ **COMPLETO**
+
 - RFC 8414 + RFC 7591 + PKCE
 - Tokens AES-256-GCM encriptados
+- Suporte a Google OAuth
+
+---
 
 ### Health Check System
+
+**Status:** ✅ **COMPLETO**
+
 - Background job (5min interval)
 - Status machine + countdown timer
+
+---
+
+### Code Quality
+
+**Status:** ✅ **COMPLETO**
+
+- Backend: mensagens centralizadas, SQL constants
+- Frontend: ESLint configurado, constants centralizados
+- **42 testes passando** (20 backend + 22 frontend)
+- Clippy warnings: 12 (complexity/dead_code)
+- ESLint warnings: 2 (any types em charts)
 
 ---
 
@@ -107,7 +102,6 @@
 ### Multi-provider Auth
 - [ ] Microsoft Entra ID login
 - [ ] GitHub login
-- [ ] Abstração já criada
 
 ### API Key Protection
 - [ ] Proteger server com API key
@@ -116,6 +110,15 @@
 ### Auto-refresh OAuth tokens
 - [ ] Implementar `try_refresh_token`
 - [ ] Usar refresh_token quando expira
+
+### Rate Limiting
+- [ ] Contador por janela de tempo
+- [ ] Middleware de limitação
+- [ ] (Considerar PostgreSQL em vez de Redis)
+
+### Alerting
+- [ ] Picos de erro
+- [ ] Notificações
 
 ---
 
@@ -132,7 +135,24 @@ cd frontend && npm run lint
 # Testes
 cd backend && cargo test
 cd frontend && npm test
+
+# Load Test
+./scripts/load-test.sh low    # 100 requests/tool
+./scripts/load-test.sh medium # 500 requests/tool
+./scripts/load-test.sh high   # 1000 requests/tool
 ```
+
+---
+
+## 🏗️ STACK
+
+| Componente | Tecnologia |
+|------------|------------|
+| Backend | Rust + Axum |
+| Frontend | Vue 3 + TypeScript + Vite |
+| Database | TimescaleDB (PostgreSQL 15) |
+| Auth | Google OAuth 2.1 + JWT |
+| Containerização | Docker Compose |
 
 ---
 
@@ -140,3 +160,4 @@ cd frontend && npm test
 
 - **MCP Spec:** https://modelcontextprotocol.io/specification/2025-11-25
 - **Governance Tests:** `docs/GOVERNANCE_TEST_SCRIPT.md`
+- **Test Servers:** `docs/TEST_SERVERS.md`

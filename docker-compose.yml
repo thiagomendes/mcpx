@@ -16,20 +16,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    container_name: mcpx-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: ./backend
@@ -39,7 +25,6 @@ services:
       - "8080:8080"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mcpx
-      REDIS_URL: redis://redis:6379
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-not-configured}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-not-configured}
       JWT_SECRET: ${JWT_SECRET:-mcpx-dev-secret-change-in-production}
@@ -52,10 +37,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    # Note: removed ./backend:/app mount that was overwriting built binary
-    # For hot-reload development, run backend locally instead
 
   frontend:
     build:
@@ -65,7 +46,6 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Use Docker internal hostname for container-to-container communication
       VITE_API_URL: http://mcpx-backend:8080
     depends_on:
       - backend
@@ -75,5 +55,5 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
-  backend_target:
+
+

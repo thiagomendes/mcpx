@@ -6,8 +6,6 @@ pub struct Config {
     pub database_url: String,
     
 
-    pub redis_url: String,
-    
 
     pub google_client_id: String,
     pub google_client_secret: String,
@@ -36,7 +34,6 @@ impl Config {
         
         Ok(Self {
             database_url: env::var("DATABASE_URL")?,
-            redis_url: env::var("REDIS_URL")?,
             google_client_id: env::var("GOOGLE_CLIENT_ID")?,
             google_client_secret: env::var("GOOGLE_CLIENT_SECRET")?,
             jwt_secret: env::var("JWT_SECRET")?,
