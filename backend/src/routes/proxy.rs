@@ -106,20 +106,8 @@ async fn handle_server_proxy(
     
     let result = forward_request(&server.url, headers, auth_headers, modified_body).await;
     
-    // Record metrics
+    // Calculate latency - record_request will be called after response body is analyzed
     let latency_ms = start.elapsed().as_millis() as i32;
-    let success = result.is_ok();
-    let _ = crate::services::metrics::record_request(
-        &state.db.pool,
-        server.user_id,
-        "server",
-        server.id,
-        &server.name,
-        Some(method),
-        tool_name.as_deref(),
-        latency_ms,
-        success,
-    ).await;
 
     // Handle result and capture response body for audit
     match result {
@@ -187,6 +175,19 @@ async fn handle_server_proxy(
                 None,
             ).await;
             
+            // Record metrics with correct success status (detects JSON-RPC errors)
+            let _ = crate::services::metrics::record_request(
+                &state.db.pool,
+                server.user_id,
+                "server",
+                server.id,
+                &server.name,
+                Some(method),
+                tool_name.as_deref(),
+                latency_ms,
+                actual_success,
+            ).await;
+            
             // Reconstruct response with the same body
             let response = Response::from_parts(parts, Body::from(body_bytes));
             
@@ -213,6 +214,19 @@ async fn handle_server_proxy(
                 latency_ms,
                 false,
                 None,
+            ).await;
+            
+            // Record metrics for error case
+            let _ = crate::services::metrics::record_request(
+                &state.db.pool,
+                server.user_id,
+                "server",
+                server.id,
+                &server.name,
+                Some(method),
+                tool_name.as_deref(),
+                latency_ms,
+                false,
             ).await;
             
             Err((StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, msg)))
@@ -320,20 +334,8 @@ async fn handle_gateway_proxy(
         }
     };
 
-    // Record gateway metrics
+    // Calculate latency - record_request will be called after response body is analyzed
     let latency_ms = start.elapsed().as_millis() as i32;
-    let success = result.is_ok();
-    let _ = crate::services::metrics::record_request(
-        &state.db.pool,
-        user_id,
-        "gateway",
-        gateway.id,
-        &gateway.name,
-        Some(method),
-        tool_name.as_deref(),
-        latency_ms,
-        success,
-    ).await;
 
     // Handle result and capture response body for audit
     match result {
@@ -401,6 +403,19 @@ async fn handle_gateway_proxy(
                 None,
             ).await;
             
+            // Record metrics with correct success status (detects JSON-RPC errors)
+            let _ = crate::services::metrics::record_request(
+                &state.db.pool,
+                user_id,
+                "gateway",
+                gateway.id,
+                &gateway.name,
+                Some(method),
+                tool_name.as_deref(),
+                latency_ms,
+                actual_success,
+            ).await;
+            
             // Reconstruct response with the same body
             Ok(Response::from_parts(parts, Body::from(body_bytes)))
         }
@@ -421,6 +436,19 @@ async fn handle_gateway_proxy(
                 latency_ms,
                 false,
                 None,
+            ).await;
+            
+            // Record metrics for error case
+            let _ = crate::services::metrics::record_request(
+                &state.db.pool,
+                user_id,
+                "gateway",
+                gateway.id,
+                &gateway.name,
+                Some(method),
+                tool_name.as_deref(),
+                latency_ms,
+                false,
             ).await;
             
             Err((status, msg))

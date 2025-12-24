@@ -60,6 +60,9 @@
       </div>
     </div>
 
+    <!-- Active Alerts Panel -->
+    <ActiveAlertsPanel />
+
     <!-- Quick Stats Row -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
       <div class="card text-center">
@@ -104,35 +107,56 @@
       </div>
     </div>
 
-    <!-- Charts Grid Row 1 -->
-    <div class="grid md:grid-cols-2 gap-6 mb-6">
-      <!-- Request Throughput Chart -->
-      <div class="card">
-        <div class="flex items-center gap-2 mb-4">
+    <!-- Server Requests Chart (full-width with filter toggle) -->
+    <div class="card mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
           <ChartBarIcon class="w-5 h-5 text-primary" />
-          <h3 class="font-semibold">Server Requests <span class="text-gray-500 text-sm font-normal">(requests)</span></h3>
+          <h3 class="font-semibold">Server Requests <span class="text-gray-500 text-sm font-normal">({{ selectedRequestsMode }})</span></h3>
         </div>
-        <div class="h-48">
-          <Line v-if="throughputData.labels.length > 0" :data="throughputData" :options="lineOptions" />
-          <div v-else class="flex items-center justify-center h-full text-gray-500">
-            <span v-if="loading" class="animate-pulse">Loading...</span>
-            <span v-else>No data</span>
-          </div>
+        <div class="flex gap-1">
+          <button 
+            v-for="mode in requestsModes" :key="mode.key"
+            @click="selectedRequestsMode = mode.key"
+            class="px-2 py-0.5 text-xs rounded transition-colors"
+            :class="selectedRequestsMode === mode.key ? 'bg-purple-500 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
+          >
+            {{ mode.label }}
+          </button>
         </div>
       </div>
-
-      <!-- Latency Chart -->
-      <div class="card">
-        <div class="flex items-center gap-2 mb-4">
-          <ClockIcon class="w-5 h-5 text-blue-400" />
-          <h3 class="font-semibold">Server Latency <span class="text-gray-500 text-sm font-normal">(ms)</span></h3>
+      <div class="h-64">
+        <Line v-if="throughputData.labels.length > 0" :data="throughputData" :options="lineOptions" />
+        <div v-else class="flex items-center justify-center h-full text-gray-500">
+          <span v-if="loading" class="animate-pulse">Loading...</span>
+          <span v-else>No data</span>
         </div>
-        <div class="h-48">
-          <Line v-if="latencyData.labels.length > 0" :data="latencyData" :options="latencyOptions" />
-          <div v-else class="flex items-center justify-center h-full text-gray-500">
-            <span v-if="loading" class="animate-pulse">Loading...</span>
-            <span v-else>No data</span>
-          </div>
+      </div>
+    </div>
+
+    <!-- Server Latency Chart (full-width with percentile toggle) -->
+    <div class="card mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <ClockIcon class="w-5 h-5 text-blue-400" />
+          <h3 class="font-semibold">Server Latency <span class="text-gray-500 text-sm font-normal">({{ selectedChartLatencyMode }})</span></h3>
+        </div>
+        <div class="flex gap-1">
+          <button 
+            v-for="mode in chartLatencyModes" :key="mode.key"
+            @click="selectedChartLatencyMode = mode.key"
+            class="px-2 py-0.5 text-xs rounded transition-colors"
+            :class="selectedChartLatencyMode === mode.key ? 'bg-blue-500 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'"
+          >
+            {{ mode.label }}
+          </button>
+        </div>
+      </div>
+      <div class="h-64">
+        <Line v-if="latencyData.labels.length > 0" :data="latencyData" :options="latencyOptions" />
+        <div v-else class="flex items-center justify-center h-full text-gray-500">
+          <span v-if="loading" class="animate-pulse">Loading...</span>
+          <span v-else>No data</span>
         </div>
       </div>
     </div>
@@ -185,6 +209,7 @@ import {
   Filler
 } from 'chart.js'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
+import ActiveAlertsPanel from '@/components/alerts/ActiveAlertsPanel.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useServersStore } from '@/stores/servers'
 import { useMetricsStore } from '@/stores/metrics'
@@ -245,6 +270,19 @@ const throughputModes = [
   { key: 'max' as ThroughputMode, label: 'max' },
 ]
 
+// Chart latency mode toggle (for latency chart)
+const selectedChartLatencyMode = ref<LatencyMode>('avg')
+const chartLatencyModes = latencyModes // reuse same options as card
+
+// Chart requests mode toggle (for requests chart)
+type RequestsMode = 'all' | 'success' | 'errors'
+const selectedRequestsMode = ref<RequestsMode>('all')
+const requestsModes = [
+  { key: 'all' as RequestsMode, label: 'all' },
+  { key: 'success' as RequestsMode, label: 'success' },
+  { key: 'errors' as RequestsMode, label: 'errors' },
+]
+
 // Persist settings
 watch(selectedHours, (val) => localStorage.setItem('mcpx_dashboard_hours', String(val)))
 watch(autoRefresh, (val) => localStorage.setItem('mcpx_dashboard_autorefresh', String(val)))
@@ -270,7 +308,7 @@ const avgLatency = computed(() => {
   return data.reduce((sum, d) => sum + (d.avg_latency_ms || 0), 0) / data.length
 })
 
-const avgLatencyFormatted = computed(() => formatLatency(avgLatency.value))
+const _avgLatencyFormatted = computed(() => formatLatency(avgLatency.value))
 
 const requestRate = computed(() => {
   const total = totalRequests.value
@@ -278,7 +316,7 @@ const requestRate = computed(() => {
   return minutes > 0 ? total / minutes : 0
 })
 
-const requestRateFormatted = computed(() => requestRate.value.toFixed(1))
+const _requestRateFormatted = computed(() => requestRate.value.toFixed(1))
 
 // Computed values from summaryStats for toggle cards
 const summary = computed(() => metricsStore.summaryStats)
@@ -319,22 +357,82 @@ const throughputModeLabel = computed(() => {
 
 
 
+// Server colors for multi-line charts
+const SERVER_COLORS = [
+  '#9333ea', // purple
+  '#3b82f6', // blue
+  '#10b981', // green
+  '#f59e0b', // amber
+  '#ef4444', // red
+  '#8b5cf6', // violet
+  '#06b6d4', // cyan
+  '#f97316', // orange
+]
+
 // Chart data
 const throughputData = computed(() => {
   const buckets = generateTimeBuckets()
-  const data = queryData.value.filter(d => d.bucket).map(d => ({
-    bucket: d.bucket!,
-    value: d.count
-  }))
-  const filledData = fillBuckets(buckets, data, 0)
+  const data = queryData.value.filter(d => d.bucket)
+  
+  // Helper to get correct count value based on mode
+  const getRequestsValue = (d: typeof data[0]): number => {
+    switch (selectedRequestsMode.value) {
+      case 'all': return d.count
+      case 'success': return d.success_count
+      case 'errors': return d.error_count
+      default: return d.count
+    }
+  }
+  
+  // Color based on mode
+  const getColor = () => {
+    switch (selectedRequestsMode.value) {
+      case 'errors': return { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)' }
+      case 'success': return { border: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' }
+      default: return { border: '#9333ea', bg: 'rgba(147, 51, 234, 0.1)' }
+    }
+  }
+  
+  // Check if we have data grouped by target_name (All Servers mode)
+  const serverNames = [...new Set(data.map(d => d.target_name).filter(Boolean))]
+  
+  if (serverNames.length > 1) {
+    // Multi-server mode: create one dataset per server
+    const datasets = serverNames.map((serverName, idx) => {
+      const serverData = data
+        .filter(d => d.target_name === serverName)
+        .map(d => ({ bucket: d.bucket!, value: getRequestsValue(d) }))
+      const filledData = fillBuckets(buckets, serverData, 0)
+      
+      return {
+        label: serverName || 'Unknown',
+        data: filledData,
+        borderColor: SERVER_COLORS[idx % SERVER_COLORS.length],
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.4,
+        pointRadius: 2,
+      }
+    })
+    
+    return {
+      labels: buckets.map(b => formatTime(b)),
+      datasets
+    }
+  }
+  
+  // Single server mode (or filtered): aggregate all data
+  const colors = getColor()
+  const aggregated = data.map(d => ({ bucket: d.bucket!, value: getRequestsValue(d) }))
+  const filledData = fillBuckets(buckets, aggregated, 0)
   
   return {
     labels: buckets.map(b => formatTime(b)),
     datasets: [{
-      label: 'Requests',
+      label: `Requests (${selectedRequestsMode.value})`,
       data: filledData,
-      borderColor: '#9333ea',
-      backgroundColor: 'rgba(147, 51, 234, 0.1)',
+      borderColor: colors.border,
+      backgroundColor: colors.bg,
       fill: true,
       tension: 0.4,
       pointRadius: 1,
@@ -344,16 +442,56 @@ const throughputData = computed(() => {
 
 const latencyData = computed(() => {
   const buckets = generateTimeBuckets()
-  const data = queryData.value.filter(d => d.bucket && d.avg_latency_ms).map(d => ({
-    bucket: d.bucket!,
-    value: d.avg_latency_ms || 0
-  }))
-  const filledData = fillBuckets(buckets, data, 0)
+  const data = queryData.value.filter(d => d.bucket && d.avg_latency_ms !== null)
+  
+  // Helper to get correct latency value based on mode
+  const getLatencyValue = (d: typeof data[0]): number => {
+    switch (selectedChartLatencyMode.value) {
+      case 'avg': return d.avg_latency_ms || 0
+      case 'p50': return d.p50_latency_ms || 0
+      case 'p95': return d.p95_latency_ms || 0
+      case 'p99': return d.p99_latency_ms || 0
+      case 'max': return d.max_latency_ms || 0
+      default: return d.avg_latency_ms || 0
+    }
+  }
+  
+  // Check if we have data grouped by target_name (All Servers mode)
+  const serverNames = [...new Set(data.map(d => d.target_name).filter(Boolean))]
+  
+  if (serverNames.length > 1) {
+    // Multi-server mode: create one dataset per server
+    const datasets = serverNames.map((serverName, idx) => {
+      const serverData = data
+        .filter(d => d.target_name === serverName)
+        .map(d => ({ bucket: d.bucket!, value: getLatencyValue(d) }))
+      const filledData = fillBuckets(buckets, serverData, 0)
+      
+      return {
+        label: serverName || 'Unknown',
+        data: filledData,
+        borderColor: SERVER_COLORS[idx % SERVER_COLORS.length],
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.4,
+        pointRadius: 2,
+      }
+    })
+    
+    return {
+      labels: buckets.map(b => formatTime(b)),
+      datasets
+    }
+  }
+  
+  // Single server mode
+  const aggregated = data.map(d => ({ bucket: d.bucket!, value: getLatencyValue(d) }))
+  const filledData = fillBuckets(buckets, aggregated, 0)
   
   return {
     labels: buckets.map(b => formatTime(b)),
     datasets: [{
-      label: 'Latency (ms)',
+      label: `Latency (${selectedChartLatencyMode.value})`,
       data: filledData,
       borderColor: '#3b82f6',
       backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -364,23 +502,36 @@ const latencyData = computed(() => {
   }
 })
 
-const lineOptions = {
+// Check if we're in multi-server mode for legend display
+const isMultiServerMode = computed(() => {
+  const data = queryData.value.filter(d => d.bucket)
+  const serverNames = [...new Set(data.map(d => d.target_name).filter(Boolean))]
+  return serverNames.length > 1
+})
+
+const lineOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
-  plugins: { legend: { display: false } },
+  plugins: { 
+    legend: { 
+      display: isMultiServerMode.value,
+      position: 'top' as const,
+      labels: { color: '#9ca3af', boxWidth: 12, padding: 8 }
+    } 
+  },
   scales: {
     x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af', maxRotation: 0 } },
     y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } }
   }
-}
+}))
 
-const latencyOptions = {
-  ...lineOptions,
+const latencyOptions = computed(() => ({
+  ...lineOptions.value,
   scales: {
-    ...lineOptions.scales,
-    y: { ...lineOptions.scales.y, ticks: { color: '#9ca3af', callback: (v: string | number) => typeof v === 'number' ? (v >= 1000 ? `${(v/1000).toFixed(1)}s` : `${v}ms`) : v } }
+    ...lineOptions.value.scales,
+    y: { ...lineOptions.value.scales.y, ticks: { color: '#9ca3af', callback: (v: string | number) => typeof v === 'number' ? (v >= 1000 ? `${(v/1000).toFixed(1)}s` : `${v}ms`) : v } }
   }
-}
+}))
 
 
 
@@ -454,10 +605,15 @@ async function refreshAll() {
   try {
     const filters = selectedServer.value ? [{ field: 'target_name', op: 'eq', value: selectedServer.value }] : []
     
+    // When All Servers: group by target_name too for multi-line charts
+    const groupBy = selectedServer.value 
+      ? ['time_bucket'] 
+      : ['time_bucket', 'target_name']
+    
     await Promise.all([
       metricsStore.queryMetrics({
         time_range_hours: selectedHours.value,
-        group_by: ['time_bucket'],
+        group_by: groupBy,
         bucket_size: selectedHours.value <= 1 ? '5m' : selectedHours.value <= 6 ? '15m' : '1h',
         filters
       }),

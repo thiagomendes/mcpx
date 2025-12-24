@@ -214,6 +214,10 @@ pub struct QueryResult {
     pub success_count: i64,
     pub error_count: i64,
     pub avg_latency_ms: Option<i32>,
+    pub p50_latency_ms: Option<i32>,
+    pub p95_latency_ms: Option<i32>,
+    pub p99_latency_ms: Option<i32>,
+    pub max_latency_ms: Option<i32>,
     pub success_rate: Option<f64>,
 }
 
@@ -299,7 +303,16 @@ pub async fn query_metrics(
     }
     
     let sql = format!(
-        "SELECT {}, {}, {}, {}, COUNT(*)::BIGINT, COUNT(*) FILTER (WHERE success)::BIGINT, COUNT(*) FILTER (WHERE NOT success)::BIGINT, AVG(latency_ms)::INT FROM request_metrics WHERE {} {} ORDER BY {}",
+        "SELECT {}, {}, {}, {}, \
+         COUNT(*)::BIGINT, \
+         COUNT(*) FILTER (WHERE success)::BIGINT, \
+         COUNT(*) FILTER (WHERE NOT success)::BIGINT, \
+         AVG(latency_ms)::INT, \
+         COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms), 0)::INT, \
+         COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)::INT, \
+         COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms), 0)::INT, \
+         MAX(latency_ms)::INT \
+         FROM request_metrics WHERE {} {} ORDER BY {}",
         bucket_col, target_type_col, target_name_col, tool_col,
         where_parts.join(" AND "),
         if group_parts.is_empty() { "".to_string() } else { format!("GROUP BY {}", group_parts.join(", ")) },
@@ -308,8 +321,8 @@ pub async fn query_metrics(
     
     tracing::info!("Executing metrics query: {}", sql);
     
-    // Execute query - fixed 8 columns
-    let rows: Vec<(Option<DateTime<Utc>>, Option<String>, Option<String>, Option<String>, i64, i64, i64, Option<i32>)> = 
+    // Execute query - 12 columns (4 grouping + 8 aggregates)
+    let rows: Vec<(Option<DateTime<Utc>>, Option<String>, Option<String>, Option<String>, i64, i64, i64, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>)> = 
         sqlx::query_as(&sql)
             .bind(user_id)
             .fetch_all(pool)
@@ -330,6 +343,10 @@ pub async fn query_metrics(
             success_count,
             error_count: row.6,
             avg_latency_ms: row.7,
+            p50_latency_ms: row.8,
+            p95_latency_ms: row.9,
+            p99_latency_ms: row.10,
+            max_latency_ms: row.11,
             success_rate: if count > 0 { Some((success_count as f64 / count as f64) * 100.0) } else { None },
         }
     }).collect();

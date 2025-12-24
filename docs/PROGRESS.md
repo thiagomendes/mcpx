@@ -153,102 +153,40 @@ O Audit Log Viewer implementado cobre completamente o escopo original de Server 
 
 ---
 
-## 🚧 EM DESENVOLVIMENTO
 
-#### Alerting System (Alert Configuration Builder)
-**Prioridade:** 🟡 Média
+#### Alerting System ✅
+**Prioridade:** 🟡 Média - **COMPLETO**
 
-Builder visual de regras de alerta inspirado no Datadog, simplificado para MCPX.
+Sistema de alertas com UI visual, background job, e painel de alertas ativos no Dashboard.
 
-##### UI Design - Estrutura em 3 Passos
+##### Implementado
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Create Alert Rule                                              │
-├─────────────────────────────────────────────────────────────────┤
-│  ① Choose Alert Type                                           │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐            │
-│  │ 📊 Threshold │ │ 📈 Spike     │ │ ❌ No Data   │            │
-│  └──────────────┘ └──────────────┘ └──────────────┘            │
-│                                                                 │
-│  ② Define the Condition                                        │
-│  When [Error Rate ▼] for [deepwiki ▼]                          │
-│  is [above ▼] [5] [%] for [5 ▼] minutes                        │
-│                                                                 │
-│  ③ Notification                                                │
-│  Alert Name: [High error rate on deepwiki]                     │
-│  [✓] Dashboard notification                                    │
-│  [ ] Email (coming soon)                                       │
-└─────────────────────────────────────────────────────────────────┘
-```
+**Backend:**
+- [x] Migração: Tabela `alert_rules` com suporte a threshold/spike/no_data
+- [x] Migração: Tabela `alert_history` para tracking de alertas
+- [x] Service: `services/alerts.rs` com CRUD completo
+- [x] Background Job: `jobs/alert_evaluator.rs` (intervalo 60s, configurável)
+- [x] APIs: CRUD de regras, alertas ativos, histórico, acknowledge
 
-##### Alert Types
+**Frontend:**
+- [x] Store: `stores/alerts.ts` com state management
+- [x] Page: `views/alerts/AlertsList.vue` com tabela de regras
+- [x] Component: `AlertBuilder.vue` (wizard 2 passos simplificado)
+- [x] Component: `ActiveAlertsPanel.vue` no Dashboard
+- [x] Dropdown de seleção de server/gateway específico
+- [x] Badge com nome do server no alerta ativo
 
-| Tipo | Descrição |
-|------|-----------|
-| **Threshold** | Métrica cruza um valor (error rate > 5%) |
-| **Spike** | Mudança brusca (latency +200% em 5min) |
-| **No Data** | Servidor sem resposta (sem requests há 10min) |
+**Design para Extração:**
+- [x] `jobs/alert_evaluator.rs` é stateless
+- [x] Comunica apenas via banco de dados
+- [x] `ALERT_EVAL_INTERVAL_SECONDS` configurável
 
-##### Metrics
-
-| Métrica | Unidade |
-|---------|---------|
-| Error Rate | % |
-| Avg Latency | ms |
-| Request Count | requests |
-| P95 Latency | ms |
-
-##### Database Schema
-
-```sql
-CREATE TABLE alert_rules (
-    id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id),
-    name VARCHAR(255) NOT NULL,
-    alert_type VARCHAR(20) NOT NULL,  -- 'threshold', 'spike', 'no_data'
-    metric VARCHAR(50) NOT NULL,       -- 'error_rate', 'avg_latency', etc
-    scope_type VARCHAR(20) NOT NULL,   -- 'all', 'server', 'gateway'
-    scope_id UUID,
-    operator VARCHAR(10) NOT NULL,     -- 'above', 'below'
-    threshold FLOAT NOT NULL,
-    duration_minutes INT NOT NULL,
-    notify_dashboard BOOLEAN DEFAULT true,
-    enabled BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE alert_history (
-    id UUID PRIMARY KEY,
-    rule_id UUID REFERENCES alert_rules(id),
-    triggered_at TIMESTAMPTZ DEFAULT NOW(),
-    resolved_at TIMESTAMPTZ,
-    trigger_value FLOAT NOT NULL,
-    status VARCHAR(20) NOT NULL  -- 'triggered', 'resolved', 'acknowledged'
-);
-```
-
-##### API Endpoints
-
-| Method | Endpoint | Descrição |
-|--------|----------|-----------|
-| GET | `/api/alerts` | Listar regras |
-| POST | `/api/alerts` | Criar regra |
-| PUT | `/api/alerts/{id}` | Atualizar regra |
-| DELETE | `/api/alerts/{id}` | Deletar regra |
-| GET | `/api/alerts/history` | Histórico |
-| POST | `/api/alerts/{id}/acknowledge` | Marcar como visto |
-
-##### Tarefas
-
-- [ ] Migração: Tabela `alert_rules`
-- [ ] Migração: Tabela `alert_history`
-- [ ] Backend: Job de verificação (cron 1min)
-- [ ] API: CRUD de regras
-- [ ] Frontend: `AlertBuilder.vue` (modal 3 steps)
-- [ ] Frontend: `AlertsList.vue` (página de regras)
-- [ ] Frontend: Painel de alertas ativos no dashboard
-- [ ] (Futuro) Email/Slack/webhook
+##### Dashboard Melhorias (bônus)
+- [x] Linhas separadas por server nos gráficos (All Servers mode)
+- [x] Layout full-width para gráficos de Server
+- [x] Toggle de percentil (avg/p50/p95/p99/max) no gráfico de Latency
+- [x] Toggle all/success/errors no gráfico de Requests
+- [x] Backend retorna percentis (p50/p95/p99/max) por time bucket
 
 ---
 
