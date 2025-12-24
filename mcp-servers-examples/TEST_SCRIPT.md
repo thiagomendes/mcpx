@@ -4,18 +4,15 @@ This script guides you through registering the example MCP servers in mcpx and t
 
 ## Prerequisites
 
-1. Start the example servers:
+1. Start all services (mcpx + example servers):
    ```bash
-   cd mcp-servers-examples
+   # From project root
    docker compose up -d
    ```
 
-2. Start mcpx:
-   ```bash
-   docker compose up -d
-   ```
+2. Open mcpx dashboard: http://localhost:3000
 
-3. Open mcpx dashboard: http://localhost:3000
+**Important:** Since all services are on the same Docker network, use container names as URLs in mcpx.
 
 ---
 
@@ -27,7 +24,7 @@ This script guides you through registering the example MCP servers in mcpx and t
 2. Click **Add Server**
 3. Fill in:
    - **Name**: `weather-local`
-   - **URL**: `http://host.docker.internal:8001/mcp`
+   - **URL**: `http://weather-mcp:8000/mcp`
    - **Transport**: Streamable HTTP
    - **Auth Type**: API Key
    - **Header Name**: `X-API-Key`
@@ -52,7 +49,7 @@ Expected behavior: mcpx adds the API Key header automatically.
 2. Click **Add Server**
 3. Fill in:
    - **Name**: `utilities-local`
-   - **URL**: `http://host.docker.internal:8002/mcp`
+   - **URL**: `http://utilities-mcp:8000/mcp`
    - **Transport**: Streamable HTTP
    - **Auth Type**: Bearer Token
    - **Token**: `utilities-token-secret-67890`
@@ -76,10 +73,10 @@ Expected behavior: mcpx adds the Authorization header automatically.
 2. Click **Add Server**
 3. Fill in:
    - **Name**: `filesystem-local`
-   - **URL**: `http://host.docker.internal:8003/mcp`
+   - **URL**: `http://filesystem-mcp:8000/mcp`
    - **Transport**: Streamable HTTP
    - **Auth Type**: OAuth (Client Credentials)
-   - **Token URL**: `http://host.docker.internal:8003/token`
+   - **Token URL**: `http://filesystem-mcp:8000/token`
    - **Client ID**: `filesystem-client`
    - **Client Secret**: `filesystem-secret-abc123`
 4. Click **Test Connection**
@@ -132,11 +129,7 @@ Call `delete_file` via the proxy. Should be blocked by mcpx.
 ## Cleanup
 
 ```bash
-# Stop example servers
-cd mcp-servers-examples
-docker compose down
-
-# Stop mcpx
+# From project root
 docker compose down
 ```
 
@@ -148,7 +141,7 @@ docker compose down
 
 If mcpx cannot connect to servers, ensure:
 - Servers are running: `docker ps`
-- Use `host.docker.internal` instead of `localhost` when mcpx runs in Docker
+- Use container names (e.g., `weather-mcp:8000`) since all services are on the same Docker network
 
 ### Auth errors
 

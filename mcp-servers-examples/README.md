@@ -20,9 +20,10 @@ Token Endpoint: POST http://localhost:8003/token
 
 ## Quick Start
 
+The example servers are defined in the root `docker-compose.yml` file.
+
 ```bash
 # From project root
-cd mcp-servers-examples
 docker compose up -d
 
 # Check servers are running
@@ -30,6 +31,11 @@ curl http://localhost:8001/health
 curl http://localhost:8002/health
 curl http://localhost:8003/health
 ```
+
+When registering servers in mcpx, use the container names since they are on the same network:
+- Weather: `http://weather-mcp:8000/mcp`
+- Utilities: `http://utilities-mcp:8000/mcp`
+- Filesystem: `http://filesystem-mcp:8000/mcp`
 
 ## Testing with mcpx
 
