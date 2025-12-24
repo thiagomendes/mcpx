@@ -1,0 +1,47 @@
+version: '3.8'
+
+# Example MCP Servers for testing different authentication methods
+# Run: docker compose -f mcp-servers-examples/docker-compose.yml up -d
+
+services:
+  # Weather MCP Server - API Key Authentication
+  # X-API-Key: weather-api-key-12345
+  weather-mcp:
+    build: ./weather
+    container_name: weather-mcp
+    ports:
+      - "8001:8000"
+    environment:
+      - API_KEY=weather-api-key-12345
+    networks:
+      - mcp-network
+
+  # Utilities MCP Server - Bearer Token Authentication
+  # Authorization: Bearer utilities-token-secret-67890
+  utilities-mcp:
+    build: ./utilities-mcp
+    container_name: utilities-mcp
+    ports:
+      - "8002:8000"
+    environment:
+      - BEARER_TOKEN=utilities-token-secret-67890
+    networks:
+      - mcp-network
+
+  # Filesystem MCP Server - OAuth Client Credentials
+  # First call /token with client_id and client_secret to get access_token
+  # Then use Authorization: Bearer <access_token>
+  filesystem-mcp:
+    build: ./filesystem-mcp
+    container_name: filesystem-mcp
+    ports:
+      - "8003:8000"
+    environment:
+      - CLIENT_ID=filesystem-client
+      - CLIENT_SECRET=filesystem-secret-abc123
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge
