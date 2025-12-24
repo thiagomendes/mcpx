@@ -334,7 +334,7 @@ if __name__ == "__main__":
     print("=" * 70)
 
     # Get the FastMCP Starlette app and add middleware + token endpoint
-    mcp_app = mcp.get_app(transport="streamable-http", path="/mcp")
+    mcp_app = mcp.http_app(path="/mcp")
     
     # Create a new app with token endpoint
     app = Starlette(

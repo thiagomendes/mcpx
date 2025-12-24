@@ -245,7 +245,7 @@ if __name__ == "__main__":
     print("=" * 70)
 
     # Get the FastMCP Starlette app and add middleware
-    app = mcp.get_app(transport="streamable-http", path="/mcp", stateless_http=True)
+    app = mcp.http_app(path="/mcp")
     app.add_middleware(BearerTokenMiddleware)
     
     uvicorn.run(app, host="0.0.0.0", port=8000)
