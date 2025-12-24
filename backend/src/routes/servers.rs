@@ -246,6 +246,8 @@ pub async fn delete_server(
     Ok(StatusCode::NO_CONTENT)
 }
 
+const SQL_SELECT_CREDENTIAL: &str = "SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2";
+
 pub async fn test_server(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -261,42 +263,161 @@ pub async fn test_server(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
     .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
-
-    let access_token: Option<String> = if server.auth_type.as_deref() == Some("oauth_auto") {
-        tracing::info!("Server {} requires OAuth, fetching token", name);
-        let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_OAUTH_TOKEN)
-        .bind(server.id)
-        .bind(user_id)
-        .fetch_optional(&state.db.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
-
-        if let Some((encrypted,)) = row {
-            tracing::info!("Found encrypted token, decrypting...");
-            let key = crate::services::crypto::derive_key(&state.config.encryption_key);
-            let decrypted = crate::services::crypto::decrypt(&encrypted, &key);
-            match decrypted {
-                Ok(token) => {
-                    tracing::info!("Token decrypted successfully, length: {}", token.len());
-                    Some(token)
-                }
-                Err(e) => {
-                    tracing::error!("Failed to decrypt token: {:?}", e);
-                    None
+    // Fetch credentials based on auth_type
+    let (auth_header_name, auth_header_value): (Option<String>, Option<String>) = 
+        match server.auth_type.as_deref() {
+            Some("api_key") => {
+                tracing::info!("Server {} requires API Key auth", name);
+                let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
+                    .bind(server.id)
+                    .bind("api_key")
+                    .fetch_optional(&state.db.pool)
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+                
+                if let Some((encrypted,)) = row {
+                    let key = crate::services::crypto::derive_key(&state.config.encryption_key);
+                    match crate::services::crypto::decrypt(&encrypted, &key) {
+                        Ok(api_key) => {
+                            tracing::info!("API Key decrypted successfully");
+                            (Some("X-API-Key".to_string()), Some(api_key))
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to decrypt API Key: {:?}", e);
+                            (None, None)
+                        }
+                    }
+                } else {
+                    tracing::warn!("No API Key found for server {}", name);
+                    (None, None)
                 }
             }
-        } else {
-            tracing::warn!("No token found in database for server {}", name);
-            None
-        }
-    } else {
-        None
-    };
+            Some("bearer") => {
+                tracing::info!("Server {} requires Bearer Token auth", name);
+                let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
+                    .bind(server.id)
+                    .bind("bearer")
+                    .fetch_optional(&state.db.pool)
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+                
+                if let Some((encrypted,)) = row {
+                    let key = crate::services::crypto::derive_key(&state.config.encryption_key);
+                    match crate::services::crypto::decrypt(&encrypted, &key) {
+                        Ok(token) => {
+                            tracing::info!("Bearer Token decrypted successfully");
+                            (Some("Authorization".to_string()), Some(format!("Bearer {}", token)))
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to decrypt Bearer Token: {:?}", e);
+                            (None, None)
+                        }
+                    }
+                } else {
+                    tracing::warn!("No Bearer Token found for server {}", name);
+                    (None, None)
+                }
+            }
+            Some("oauth_auto") => {
+                tracing::info!("Server {} requires OAuth, fetching token", name);
+                let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_OAUTH_TOKEN)
+                    .bind(server.id)
+                    .bind(user_id)
+                    .fetch_optional(&state.db.pool)
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+                
+                if let Some((encrypted,)) = row {
+                    let key = crate::services::crypto::derive_key(&state.config.encryption_key);
+                    match crate::services::crypto::decrypt(&encrypted, &key) {
+                        Ok(token) => {
+                            tracing::info!("OAuth token decrypted successfully");
+                            (Some("Authorization".to_string()), Some(format!("Bearer {}", token)))
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to decrypt OAuth token: {:?}", e);
+                            (None, None)
+                        }
+                    }
+                } else {
+                    tracing::warn!("No OAuth token found for server {}", name);
+                    (None, None)
+                }
+            }
+            Some("oauth_client_credentials") => {
+                tracing::info!("Server {} requires OAuth Client Credentials", name);
+                
+                // Get client_id from server record
+                let client_id = server.oauth_client_id.clone().unwrap_or_default();
+                
+                // Get client_secret from credentials
+                let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
+                    .bind(server.id)
+                    .bind("oauth_client_secret")
+                    .fetch_optional(&state.db.pool)
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+                
+                let client_secret = if let Some((encrypted,)) = row {
+                    let key = crate::services::crypto::derive_key(&state.config.encryption_key);
+                    crate::services::crypto::decrypt(&encrypted, &key).ok()
+                } else {
+                    None
+                };
+                
+                // Get token URL from server record
+                let token_url = server.oauth_token_url.clone().unwrap_or_default();
+                
+                if client_id.is_empty() || client_secret.is_none() || token_url.is_empty() {
+                    tracing::warn!("Missing OAuth Client Credentials config for server {}", name);
+                    (None, None)
+                } else {
+                    // Fetch token from token endpoint
+                    let client = reqwest::Client::new();
+                    let token_response = client.post(&token_url)
+                        .json(&serde_json::json!({
+                            "grant_type": "client_credentials",
+                            "client_id": client_id,
+                            "client_secret": client_secret.unwrap()
+                        }))
+                        .send()
+                        .await;
+                    
+                    match token_response {
+                        Ok(resp) if resp.status().is_success() => {
+                            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                                if let Some(access_token) = json.get("access_token").and_then(|v| v.as_str()) {
+                                    tracing::info!("OAuth Client Credentials token obtained successfully");
+                                    (Some("Authorization".to_string()), Some(format!("Bearer {}", access_token)))
+                                } else {
+                                    tracing::error!("Token response missing access_token");
+                                    (None, None)
+                                }
+                            } else {
+                                tracing::error!("Failed to parse token response");
+                                (None, None)
+                            }
+                        }
+                        Ok(resp) => {
+                            tracing::error!("Token endpoint returned error: {}", resp.status());
+                            (None, None)
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to fetch token: {:?}", e);
+                            (None, None)
+                        }
+                    }
+                }
+            }
+            _ => {
+                tracing::info!("Server {} has no auth configured", name);
+                (None, None)
+            }
+        };
 
     let start = std::time::Instant::now();
-    
 
-    let result = test_mcp_connection(&server.url, access_token.as_deref()).await;
+    let result = test_mcp_connection(&server.url, auth_header_name.as_deref(), auth_header_value.as_deref()).await;
     let latency_ms = start.elapsed().as_millis() as u32;
     
     match result {
@@ -325,17 +446,31 @@ pub async fn test_server(
     }
 }
 
-async fn test_mcp_connection(server_url: &str, access_token: Option<&str>) -> Result<Vec<ToolInfo>, String> {
+async fn test_mcp_connection(server_url: &str, auth_header_name: Option<&str>, auth_header_value: Option<&str>) -> Result<Vec<ToolInfo>, String> {
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+    
+    // Build custom headers if auth is provided
+    let mut custom_headers = HeaderMap::new();
+    if let (Some(name), Some(value)) = (auth_header_name, auth_header_value) {
+        let header_name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|e| format!("Invalid header name: {:?}", e))?;
+        let header_value = HeaderValue::from_str(value)
+            .map_err(|e| format!("Invalid header value: {:?}", e))?;
+        custom_headers.insert(header_name, header_value);
+    }
 
-    let config = if let Some(token) = access_token {
-        StreamableHttpClientTransportConfig::with_uri(server_url)
-            .auth_header(token)
+    // Build client with custom headers
+    let client = if custom_headers.is_empty() {
+        reqwest::Client::new()
     } else {
-        StreamableHttpClientTransportConfig::with_uri(server_url)
+        reqwest::Client::builder()
+            .default_headers(custom_headers)
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {:?}", e))?
     };
 
-    let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
-
+    let config = StreamableHttpClientTransportConfig::with_uri(server_url);
+    let transport = StreamableHttpClientTransport::with_client(client, config);
 
     let client_info = ClientInfo {
         protocol_version: Default::default(),
@@ -349,17 +484,13 @@ async fn test_mcp_connection(server_url: &str, access_token: Option<&str>) -> Re
         },
     };
 
-
     let client: RunningService<rmcp::RoleClient, _> = client_info.serve(transport).await
         .map_err(|e| format!("Failed to connect: {:?}", e))?;
-
 
     let tools_result = client.list_tools(None).await
         .map_err(|e| format!("Failed to list tools: {:?}", e))?;
 
-
     let _ = client.cancel().await;
-
 
     let tools: Vec<ToolInfo> = tools_result.tools.into_iter().map(|t| ToolInfo {
         name: t.name.to_string(),

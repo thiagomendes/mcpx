@@ -207,7 +207,7 @@ const addingServer = ref(false)
 const tools = ref<GatewayTool[]>([])
 const loadingTools = ref(false)
 const toolsError = ref<string | null>(null)
-const toolsExpanded = ref(true)
+const toolsExpanded = ref(false)
 
 const slug = computed(() => route.params.slug as string)
 const gateway = computed(() => gatewaysStore.getGatewayBySlug(slug.value))

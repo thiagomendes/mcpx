@@ -53,7 +53,40 @@ services:
       - ./frontend:/app
       - /app/node_modules
 
+  # =============================================================================
+  # Example MCP Servers for Testing
+  # =============================================================================
+
+  # Weather MCP Server - API Key Authentication
+  # X-API-Key: weather-api-key-12345
+  weather-mcp:
+    build: ./mcp-servers-examples/weather
+    container_name: weather-mcp
+    ports:
+      - "8001:8000"
+    environment:
+      - API_KEY=weather-api-key-12345
+
+  # Utilities MCP Server - Bearer Token Authentication
+  # Authorization: Bearer utilities-token-secret-67890
+  utilities-mcp:
+    build: ./mcp-servers-examples/utilities-mcp
+    container_name: utilities-mcp
+    ports:
+      - "8002:8000"
+    environment:
+      - BEARER_TOKEN=utilities-token-secret-67890
+
+  # Filesystem MCP Server - OAuth Client Credentials
+  # POST /token with client_id and client_secret to get access_token
+  filesystem-mcp:
+    build: ./mcp-servers-examples/filesystem-mcp
+    container_name: filesystem-mcp
+    ports:
+      - "8003:8000"
+    environment:
+      - CLIENT_ID=filesystem-client
+      - CLIENT_SECRET=filesystem-secret-abc123
+
 volumes:
   postgres_data:
-
-

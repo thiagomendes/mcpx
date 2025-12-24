@@ -174,7 +174,6 @@ import { useAlertsStore, type AlertRule, type CreateAlertRule, type UpdateAlertR
 import { 
   PlusIcon, 
   BellIcon,
-  ExclamationTriangleIcon,
   PencilIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline'

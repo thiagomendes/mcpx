@@ -1,7 +1,7 @@
 # MCPX - Estado do Projeto
 
-**Última atualização:** 2025-12-23
-**Branch:** feature/request-metrics
+**Última atualização:** 2025-12-24
+**Branch:** feature/mcp-auth-examples
 
 ---
 
@@ -85,14 +85,34 @@
 
 ---
 
+### MCP Server Examples
+
+**Status:** ✅ **COMPLETO**
+
+3 servidores de exemplo para testar diferentes métodos de autenticação:
+
+| Server | Auth Type | Location |
+|--------|-----------|----------|
+| weather-mcp | API Key | `mcp-servers-examples/weather/` |
+| utilities-mcp | Bearer Token | `mcp-servers-examples/utilities-mcp/` |
+| filesystem-mcp | OAuth Client Credentials | `mcp-servers-examples/filesystem-mcp/` |
+
+**Features:**
+- Docker integrado no `docker-compose.yml` principal
+- Test script completo: `mcp-servers-examples/TEST_SCRIPT.md`
+- Health check authenticado para todos os tipos
+- Gateway proxy com auth injection completo
+
+---
+
 ### Code Quality
 
 **Status:** ✅ **COMPLETO**
 
 - Backend: mensagens centralizadas, SQL constants
 - Frontend: ESLint configurado, constants centralizados
-- **42 testes passando** (20 backend + 22 frontend)
-- Clippy warnings: 12 (complexity/dead_code)
+- **42 testes passando** (21 backend + 21 frontend)
+- Clippy warnings: 13 (alerting features)
 - ESLint warnings: 2 (any types em charts)
 
 ---

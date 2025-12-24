@@ -27,15 +27,31 @@ impl From<Tool> for McpToolInfo {
     }
 }
 
-pub async fn list_tools_from_server(server_url: &str, access_token: Option<&str>) -> Result<Vec<McpToolInfo>, String> {
-    let config = if let Some(token) = access_token {
-        StreamableHttpClientTransportConfig::with_uri(server_url)
-            .auth_header(token)
+pub async fn list_tools_from_server(server_url: &str, auth_header_name: Option<&str>, auth_header_value: Option<&str>) -> Result<Vec<McpToolInfo>, String> {
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+    
+    // Build custom headers if auth is provided
+    let mut custom_headers = HeaderMap::new();
+    if let (Some(name), Some(value)) = (auth_header_name, auth_header_value) {
+        let header_name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|e| format!("Invalid header name: {:?}", e))?;
+        let header_value = HeaderValue::from_str(value)
+            .map_err(|e| format!("Invalid header value: {:?}", e))?;
+        custom_headers.insert(header_name, header_value);
+    }
+
+    // Build client with custom headers
+    let client = if custom_headers.is_empty() {
+        reqwest::Client::new()
     } else {
-        StreamableHttpClientTransportConfig::with_uri(server_url)
+        reqwest::Client::builder()
+            .default_headers(custom_headers)
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {:?}", e))?
     };
 
-    let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
+    let config = StreamableHttpClientTransportConfig::with_uri(server_url);
+    let transport = StreamableHttpClientTransport::with_client(client, config);
 
     let client_info = ClientInfo {
         protocol_version: Default::default(),
@@ -49,13 +65,13 @@ pub async fn list_tools_from_server(server_url: &str, access_token: Option<&str>
         },
     };
 
-    let client: RunningService<rmcp::RoleClient, _> = client_info.serve(transport).await
+    let mcp_client: RunningService<rmcp::RoleClient, _> = client_info.serve(transport).await
         .map_err(|e| format!("Connection failed: {:?}", e))?;
 
-    let tools_result = client.list_tools(None).await
+    let tools_result = mcp_client.list_tools(None).await
         .map_err(|e| format!("Failed to list tools: {:?}", e))?;
 
-    let _ = client.cancel().await;
+    let _ = mcp_client.cancel().await;
 
     Ok(tools_result.tools.into_iter().map(McpToolInfo::from).collect())
 }

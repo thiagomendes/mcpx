@@ -162,22 +162,6 @@
                     <div class="text-sm text-gray-400">Server-to-server auth (no user interaction)</div>
                   </div>
                 </label>
-                
-                <!-- Manual Configuration -->
-                <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-600 cursor-pointer hover:bg-gray-800" :class="form.auth_type === 'oauth_manual' && 'border-fuchsia-500 bg-gray-800'">
-                  <input type="radio" v-model="form.auth_type" value="oauth_manual" class="text-fuchsia-500 mt-1" />
-                  <div class="flex-1">
-                    <div class="flex items-center gap-2">
-                      <span class="font-medium text-fuchsia-400">⚙️ Manual Configuration</span>
-                      <InfoTooltip 
-                        title="Manual OAuth Setup"
-                        content="For legacy servers that don't support OAuth discovery. You'll need to manually enter the authorization URL, token URL, and client credentials. Use this as a fallback when auto-discovery fails."
-                        type="warning"
-                      />
-                    </div>
-                    <div class="text-sm text-gray-400">Manually configure OAuth endpoints (legacy)</div>
-                  </div>
-                </label>
               </div>
             </div>
           </div>
@@ -236,39 +220,6 @@
               <label class="block text-sm font-medium mb-2">Scopes</label>
               <input v-model="form.oauth_scopes" type="text" class="input" placeholder="read write" />
             </div>
-          </div>
-          
-          <!-- Manual OAuth fields -->
-          <div v-if="form.auth_type === 'oauth_manual'" class="mt-4 space-y-4 p-4 bg-gray-900/50 rounded-lg">
-            <div>
-              <label class="block text-sm font-medium mb-2">Authorization URL</label>
-              <input v-model="form.oauth_authorization_url" type="url" class="input" placeholder="https://provider.com/oauth/authorize" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-2">Token URL</label>
-              <input v-model="form.oauth_token_url" type="url" class="input" placeholder="https://provider.com/oauth/token" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-2">Client ID</label>
-              <input v-model="form.oauth_client_id" type="text" class="input" placeholder="your-client-id" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-2">Client Secret (optional)</label>
-              <input v-model="form.oauth_client_secret" type="password" class="input" placeholder="your-client-secret" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-2">Scopes</label>
-              <input v-model="form.oauth_scopes" type="text" class="input" placeholder="read write" />
-            </div>
-            <label class="flex items-center gap-2 text-sm">
-              <input type="checkbox" v-model="form.oauth_use_pkce" class="text-indigo-500" />
-              <span>Use PKCE (recommended)</span>
-              <InfoTooltip 
-                title="PKCE (Proof Key for Code Exchange)"
-                content="PKCE adds extra security to the OAuth flow by using a cryptographic challenge. Required by OAuth 2.1 spec. Only disable if the server doesn't support it."
-                type="warning"
-              />
-            </label>
           </div>
         </div>
 
