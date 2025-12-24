@@ -336,12 +336,13 @@ if __name__ == "__main__":
     # Get the FastMCP Starlette app and add middleware + token endpoint
     mcp_app = mcp.http_app(path="/mcp")
     
-    # Create a new app with token endpoint
+    # Create a new app with token endpoint - MUST pass lifespan from mcp_app
     app = Starlette(
         routes=[
             Route("/token", token_endpoint, methods=["POST"]),
             Mount("/", app=mcp_app),
-        ]
+        ],
+        lifespan=mcp_app.lifespan
     )
     app.add_middleware(OAuthMiddleware)
     

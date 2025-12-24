@@ -14,7 +14,7 @@ use crate::services::mcp_client;
 use crate::messages::error;
 
 
-const SQL_SELECT_SERVER: &str = "SELECT id, user_id, name, url, transport, auth_type, status FROM servers WHERE name = $1 AND user_id = $2";
+const SQL_SELECT_SERVER: &str = "SELECT id, user_id, name, url, transport, auth_type, status, oauth_client_id, oauth_token_url FROM servers WHERE name = $1 AND user_id = $2";
 const SQL_SELECT_GOVERNANCE: &str = "SELECT allowed_tools, denied_tools, tool_prefix FROM governance_configs WHERE server_id = $1";
 
 const SQL_SELECT_GATEWAY: &str = r#"
@@ -22,7 +22,7 @@ const SQL_SELECT_GATEWAY: &str = r#"
 "#;
 
 const SQL_SELECT_GATEWAY_SERVERS: &str = r#"
-    SELECT s.id, s.user_id, s.name, s.url, s.transport, s.auth_type, s.status
+    SELECT s.id, s.user_id, s.name, s.url, s.transport, s.auth_type, s.status, s.oauth_client_id, s.oauth_token_url
     FROM gateway_servers gs
     JOIN servers s ON s.id = gs.server_id
     WHERE gs.gateway_id = $1
@@ -534,9 +534,9 @@ async fn handle_gateway_tools_list(
         let governance = get_governance_config(state, server.id).await
             .unwrap_or_default();
         
-        let access_token = get_oauth_token(state, server).await.ok().flatten();
+        let (auth_header_name, auth_header_value) = get_server_auth_headers(state, server).await;
         
-        let tools = mcp_client::list_tools_from_server(&server.url, access_token.as_deref()).await;
+        let tools = mcp_client::list_tools_from_server(&server.url, auth_header_name.as_deref(), auth_header_value.as_deref()).await;
         
         match tools {
             Ok(tools) => {
@@ -718,6 +718,8 @@ struct ServerRow {
     transport: String,
     auth_type: Option<String>,
     status: Option<String>,
+    oauth_client_id: Option<String>,
+    oauth_token_url: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -951,13 +953,56 @@ async fn build_auth_headers(state: &AppState, server: &ServerRow) -> Result<Vec<
         
         }
         Some("api_key") => {
-            if let Some(api_key) = get_credential(state, server.id, "api_key").await? {
+            if let Some(encrypted) = get_credential(state, server.id, "api_key").await? {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                let api_key = crypto::decrypt(&encrypted, &key)
+                    .map_err(|e| format!("Failed to decrypt API key: {}", e))?;
                 headers.push(("X-API-Key".to_string(), api_key));
             }
         }
         Some("bearer") => {
-            if let Some(token) = get_credential(state, server.id, "bearer_token").await? {
+            if let Some(encrypted) = get_credential(state, server.id, "bearer").await? {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                let token = crypto::decrypt(&encrypted, &key)
+                    .map_err(|e| format!("Failed to decrypt bearer token: {}", e))?;
                 headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+            }
+        }
+        Some("oauth_client_credentials") => {
+            let client_id = server.oauth_client_id.clone().unwrap_or_default();
+            let token_url = server.oauth_token_url.clone().unwrap_or_default();
+            
+            if let Some(encrypted) = get_credential(state, server.id, "oauth_client_secret").await? {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                let client_secret = crypto::decrypt(&encrypted, &key)
+                    .map_err(|e| format!("Failed to decrypt client secret: {}", e))?;
+                
+                if !client_id.is_empty() && !token_url.is_empty() {
+                    // Fetch token from token endpoint
+                    let client = reqwest::Client::new();
+                    let token_response = client.post(&token_url)
+                        .json(&serde_json::json!({
+                            "grant_type": "client_credentials",
+                            "client_id": client_id,
+                            "client_secret": client_secret
+                        }))
+                        .send()
+                        .await
+                        .map_err(|e| format!("Failed to fetch token: {}", e))?;
+                    
+                    if token_response.status().is_success() {
+                        let json: serde_json::Value = token_response.json().await
+                            .map_err(|e| format!("Failed to parse token response: {}", e))?;
+                        
+                        if let Some(access_token) = json.get("access_token").and_then(|v| v.as_str()) {
+                            headers.push(("Authorization".to_string(), format!("Bearer {}", access_token)));
+                        } else {
+                            return Err("Token response missing access_token".to_string());
+                        }
+                    } else {
+                        return Err(format!("Token endpoint returned error: {}", token_response.status()));
+                    }
+                }
             }
         }
         Some("oauth_auto") => {
@@ -977,7 +1022,7 @@ async fn build_auth_headers(state: &AppState, server: &ServerRow) -> Result<Vec<
 
 async fn get_credential(state: &AppState, server_id: Uuid, cred_type: &str) -> Result<Option<String>, String> {
     let row: Option<(String,)> = sqlx::query_as(
-        "SELECT value_encrypted FROM credentials WHERE server_id = $1 AND key = $2"
+        "SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2"
     )
     .bind(server_id)
     .bind(cred_type)
@@ -1018,6 +1063,108 @@ async fn get_oauth_token(state: &AppState, server: &ServerRow) -> Result<Option<
         Ok(None)
     }
 }
+
+const SQL_SELECT_CREDENTIAL_PROXY: &str = "SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2";
+
+async fn get_server_auth_headers(state: &AppState, server: &ServerRow) -> (Option<String>, Option<String>) {
+    match server.auth_type.as_deref() {
+        Some("api_key") => {
+            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL_PROXY)
+                .bind(server.id)
+                .bind("api_key")
+                .fetch_optional(&state.db.pool)
+                .await
+                .ok()
+                .flatten();
+            
+            if let Some((encrypted,)) = row {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                match crypto::decrypt(&encrypted, &key) {
+                    Ok(api_key) => (Some("X-API-Key".to_string()), Some(api_key)),
+                    Err(_) => (None, None)
+                }
+            } else {
+                (None, None)
+            }
+        }
+        Some("bearer") => {
+            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL_PROXY)
+                .bind(server.id)
+                .bind("bearer")
+                .fetch_optional(&state.db.pool)
+                .await
+                .ok()
+                .flatten();
+            
+            if let Some((encrypted,)) = row {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                match crypto::decrypt(&encrypted, &key) {
+                    Ok(token) => (Some("Authorization".to_string()), Some(format!("Bearer {}", token))),
+                    Err(_) => (None, None)
+                }
+            } else {
+                (None, None)
+            }
+        }
+        Some("oauth_client_credentials") => {
+            let client_id = server.oauth_client_id.clone().unwrap_or_default();
+            let token_url = server.oauth_token_url.clone().unwrap_or_default();
+            
+            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL_PROXY)
+                .bind(server.id)
+                .bind("oauth_client_secret")
+                .fetch_optional(&state.db.pool)
+                .await
+                .ok()
+                .flatten();
+            
+            let client_secret = if let Some((encrypted,)) = row {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                crypto::decrypt(&encrypted, &key).ok()
+            } else {
+                None
+            };
+            
+            if client_id.is_empty() || client_secret.is_none() || token_url.is_empty() {
+                (None, None)
+            } else {
+                // Fetch token from token endpoint
+                let client = reqwest::Client::new();
+                let token_response = client.post(&token_url)
+                    .json(&serde_json::json!({
+                        "grant_type": "client_credentials",
+                        "client_id": client_id,
+                        "client_secret": client_secret.unwrap()
+                    }))
+                    .send()
+                    .await;
+                
+                match token_response {
+                    Ok(resp) if resp.status().is_success() => {
+                        if let Ok(json) = resp.json::<serde_json::Value>().await {
+                            if let Some(access_token) = json.get("access_token").and_then(|v| v.as_str()) {
+                                (Some("Authorization".to_string()), Some(format!("Bearer {}", access_token)))
+                            } else {
+                                (None, None)
+                            }
+                        } else {
+                            (None, None)
+                        }
+                    }
+                    _ => (None, None)
+                }
+            }
+        }
+        Some("oauth_auto") => {
+            match get_oauth_token(state, server).await {
+                Ok(Some(token)) => (Some("Authorization".to_string()), Some(format!("Bearer {}", token))),
+                _ => (None, None)
+            }
+        }
+        _ => (None, None)
+    }
+}
+
 async fn forward_request(
     target_url: &str,
     original_headers: HeaderMap,
