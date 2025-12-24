@@ -4,6 +4,7 @@ mod models;
 mod services;
 mod middleware;
 mod messages;
+mod jobs;
 
 use axum::{
     routing::{get, post, delete, put},
@@ -87,11 +88,35 @@ async fn main() {
         .unwrap_or(300);
     
     services::health_check::start_health_check_job(
-        db,
+        db.clone(),
         config.encryption_key.clone(),
         health_check_interval
     ).await;
     println!("8. Health check job started ({}s interval)", health_check_interval);
+
+    // Alert Evaluator Job (designed for future extraction to separate service)
+    let alert_eval_interval: u64 = std::env::var("ALERT_EVAL_INTERVAL_SECONDS")
+        .unwrap_or_else(|_| "60".to_string())
+        .parse()
+        .unwrap_or(60);
+    
+    let alert_pool = db.pool.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(alert_eval_interval)).await;
+            match jobs::alert_evaluator::run_evaluation_cycle(&alert_pool).await {
+                Ok(results) => {
+                    if !results.is_empty() {
+                        tracing::debug!("Alert evaluation completed: {} rules checked", results.len());
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Alert evaluation failed: {}", e);
+                }
+            }
+        }
+    });
+    println!("9. Alert evaluator job started ({}s interval)", alert_eval_interval);
 
 
     let cors = CorsLayer::new()
@@ -147,6 +172,16 @@ async fn main() {
         // Audit Logs
         .route("/api/audit", get(routes::audit::list_audit_logs))
         .route("/api/audit/:id", get(routes::audit::get_audit_log))
+    
+        // Alerts
+        .route("/api/alerts", get(routes::alerts::list_rules))
+        .route("/api/alerts", post(routes::alerts::create_rule))
+        .route("/api/alerts/active", get(routes::alerts::get_active_alerts))
+        .route("/api/alerts/history", get(routes::alerts::get_history))
+        .route("/api/alerts/:id", get(routes::alerts::get_rule))
+        .route("/api/alerts/:id", put(routes::alerts::update_rule))
+        .route("/api/alerts/:id", delete(routes::alerts::delete_rule))
+        .route("/api/alerts/:id/acknowledge", post(routes::alerts::acknowledge_alert))
     
         // MCP Proxy
         .route("/mcp/:user_id/:server_name", post(routes::proxy::mcp_proxy))

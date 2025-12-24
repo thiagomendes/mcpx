@@ -42,6 +42,14 @@
           <ClipboardDocumentListIcon class="w-5 h-5" />
           Audit Logs
         </router-link>
+        <router-link 
+          to="/alerts" 
+          class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-background-hover transition-colors"
+          active-class="!text-white !bg-background-hover"
+        >
+          <BellIcon class="w-5 h-5" />
+          Alerts
+        </router-link>
       </nav>
 
       <!-- User -->
@@ -85,6 +93,7 @@ import {
   ServerIcon, 
   RectangleStackIcon,
   ClipboardDocumentListIcon,
+  BellIcon,
   ArrowRightOnRectangleIcon 
 } from '@heroicons/vue/24/outline'
 

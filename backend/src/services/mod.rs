@@ -5,3 +5,4 @@ pub mod oauth_provider;
 pub mod mcp_client;
 pub mod metrics;
 pub mod audit;
+pub mod alerts;

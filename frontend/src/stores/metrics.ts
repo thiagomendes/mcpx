@@ -46,6 +46,10 @@ export interface QueryResult {
     success_count: number
     error_count: number
     avg_latency_ms: number | null
+    p50_latency_ms: number | null
+    p95_latency_ms: number | null
+    p99_latency_ms: number | null
+    max_latency_ms: number | null
     success_rate: number | null
 }
 
