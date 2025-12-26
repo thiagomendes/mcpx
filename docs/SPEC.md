@@ -1,9 +1,9 @@
 # mcpx - Product Specification
 
-**Version:** 1.1
+**Version:** 2.0
 **Status:** Active Development
 **Owner:** TM Dev Lab
-**Last Updated:** 2025-12-23
+**Last Updated:** 2025-12-26
 
 ---
 
@@ -311,28 +311,55 @@ sequenceDiagram
 
 ```mermaid
 erDiagram
-    users ||--o{ servers : owns
-    users ||--o{ gateways : owns
-    users ||--o{ audit_logs : generates
+    organizations ||--o{ org_members : has
+    organizations ||--o{ servers : owns
+    organizations ||--o{ gateways : owns
+    organizations ||--o{ audit_logs : generates
+    users ||--o{ org_members : belongs_to
+    users ||--o{ user_identities : has
     gateways ||--o{ gateway_servers : contains
     servers ||--o{ gateway_servers : "part of"
     servers ||--o{ credentials : has
     servers ||--o{ governance_configs : has
 
+    organizations {
+        uuid id PK
+        string name
+        string slug UK
+        boolean is_personal
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    org_members {
+        uuid id PK
+        uuid org_id FK
+        uuid user_id FK
+        string role "owner|admin|member"
+        timestamp created_at
+    }
+
     users {
         uuid id PK
         string email UK
         string name
-        string google_id UK
         string avatar_url
         timestamp created_at
         timestamp updated_at
         timestamp last_login_at
     }
 
-    servers {
+    user_identities {
         uuid id PK
         uuid user_id FK
+        string provider "google|github|microsoft"
+        string provider_user_id UK
+        timestamp created_at
+    }
+
+    servers {
+        uuid id PK
+        uuid org_id FK
         string name UK
         string url
         string transport "streamable-http|sse"
@@ -364,7 +391,7 @@ erDiagram
 
     gateways {
         uuid id PK
-        uuid user_id FK
+        uuid org_id FK
         string name UK
         string slug UK
         boolean enabled
@@ -382,7 +409,8 @@ erDiagram
 
     audit_logs {
         uuid id PK
-        uuid user_id FK
+        uuid org_id FK
+        uuid user_id FK "actor"
         uuid server_id FK
         uuid gateway_id FK
         string method
@@ -404,7 +432,6 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) NOT NULL UNIQUE,
     name VARCHAR(255),
-    google_id VARCHAR(255) UNIQUE,
     avatar_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -412,7 +439,49 @@ CREATE TABLE users (
 );
 
 CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_google_id ON users(google_id);
+```
+
+### 001b_organizations.sql
+
+```sql
+-- Organizations (multi-tenant workspaces)
+CREATE TABLE organizations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(50) UNIQUE NOT NULL,
+    is_personal BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_orgs_slug ON organizations(slug);
+
+-- Organization members with roles
+CREATE TABLE org_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(20) NOT NULL DEFAULT 'member',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(org_id, user_id),
+    CONSTRAINT chk_role CHECK (role IN ('owner', 'admin', 'member'))
+);
+
+CREATE INDEX idx_org_members_org ON org_members(org_id);
+CREATE INDEX idx_org_members_user ON org_members(user_id);
+
+-- User identities (multi-provider OAuth)
+CREATE TABLE user_identities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider VARCHAR(50) NOT NULL,
+    provider_user_id VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(provider, provider_user_id)
+);
+
+CREATE INDEX idx_identities_user ON user_identities(user_id);
+CREATE INDEX idx_identities_provider ON user_identities(provider, provider_user_id);
 ```
 
 ### 002_servers.sql
@@ -420,7 +489,7 @@ CREATE INDEX idx_users_google_id ON users(google_id);
 ```sql
 CREATE TABLE servers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     url TEXT NOT NULL,
     transport VARCHAR(50) NOT NULL DEFAULT 'streamable-http',
@@ -429,10 +498,10 @@ CREATE TABLE servers (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     
-    UNIQUE(user_id, name)
+    UNIQUE(org_id, name)
 );
 
-CREATE INDEX idx_servers_user_id ON servers(user_id);
+CREATE INDEX idx_servers_org_id ON servers(org_id);
 ```
 
 ### 003_credentials.sql
@@ -476,15 +545,15 @@ CREATE TABLE governance_configs (
 ```sql
 CREATE TABLE gateways (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     slug VARCHAR(100) NOT NULL,
     enabled BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     
-    UNIQUE(user_id, name),
-    UNIQUE(user_id, slug)
+    UNIQUE(org_id, name),
+    UNIQUE(org_id, slug)
 );
 
 CREATE TABLE gateway_servers (
@@ -505,7 +574,8 @@ CREATE INDEX idx_gateway_servers_gateway_id ON gateway_servers(gateway_id);
 ```sql
 CREATE TABLE audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id),
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id),  -- Actor (nullable for org-level operations)
     server_id UUID REFERENCES servers(id) ON DELETE SET NULL,
     gateway_id UUID REFERENCES gateways(id) ON DELETE SET NULL,
     method VARCHAR(100) NOT NULL,
@@ -518,7 +588,7 @@ CREATE TABLE audit_logs (
 );
 
 -- Partition by month for performance
-CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX idx_audit_logs_org_id ON audit_logs(org_id);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX idx_audit_logs_server_id ON audit_logs(server_id);
 ```
