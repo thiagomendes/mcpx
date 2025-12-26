@@ -8,32 +8,47 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
+// ============================================
+// TYPE ALIASES FOR COMPLEX QUERIES
+// ============================================
+
+type HourlyStatRow = (DateTime<Utc>, i64, i64, Option<i32>);
+type TargetMetricsRow = (String, Uuid, String, i64, i64, Option<i32>);
+type QueryMetricsRow = (Option<DateTime<Utc>>, Option<String>, Option<String>, Option<String>, i64, i64, i64, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>);
+type LatencyRow = (Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<f64>, i64, Option<i64>);
+type ThroughputRow = (Option<f64>, Option<f64>, Option<f64>);
+
+/// Struct to group request metric arguments
+pub struct RequestMetric<'a> {
+    pub org_id: Uuid,
+    pub target_type: &'a str,
+    pub target_id: Uuid,
+    pub target_name: &'a str,
+    pub method: Option<&'a str>,
+    pub tool_name: Option<&'a str>,
+    pub latency_ms: i32,
+    pub success: bool,
+}
+
 /// Record a request metric
 pub async fn record_request(
     pool: &PgPool,
-    user_id: Uuid,
-    target_type: &str,
-    target_id: Uuid,
-    target_name: &str,
-    method: Option<&str>,
-    tool_name: Option<&str>,
-    latency_ms: i32,
-    success: bool,
+    metric: RequestMetric<'_>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
-        INSERT INTO request_metrics (time, user_id, target_type, target_id, target_name, method, tool_name, latency_ms, success)
+        INSERT INTO request_metrics (time, org_id, target_type, target_id, target_name, method, tool_name, latency_ms, success)
         VALUES (NOW(), $1, $2, $3, $4, $5, $6, $7, $8)
         "#,
     )
-    .bind(user_id)
-    .bind(target_type)
-    .bind(target_id)
-    .bind(target_name)
-    .bind(method)
-    .bind(tool_name)
-    .bind(latency_ms)
-    .bind(success)
+    .bind(metric.org_id)
+    .bind(metric.target_type)
+    .bind(metric.target_id)
+    .bind(metric.target_name)
+    .bind(metric.method)
+    .bind(metric.tool_name)
+    .bind(metric.latency_ms)
+    .bind(metric.success)
     .execute(pool)
     .await?;
 
@@ -47,18 +62,18 @@ pub struct TodayMetrics {
 }
 
 /// Get today's request count by target type using TimescaleDB time_bucket
-pub async fn get_today_count(pool: &PgPool, user_id: Uuid) -> Result<TodayMetrics, sqlx::Error> {
+pub async fn get_today_count(pool: &PgPool, org_id: Uuid) -> Result<TodayMetrics, sqlx::Error> {
     let row: (i64, i64) = sqlx::query_as(
         r#"
         SELECT 
             COALESCE(SUM(CASE WHEN target_type = 'server' THEN 1 ELSE 0 END), 0) as servers,
             COALESCE(SUM(CASE WHEN target_type = 'gateway' THEN 1 ELSE 0 END), 0) as gateways
         FROM request_metrics
-        WHERE user_id = $1 
+        WHERE org_id = $1 
           AND time >= time_bucket('1 day', NOW())
         "#,
     )
-    .bind(user_id)
+    .bind(org_id)
     .fetch_one(pool)
     .await?;
 
@@ -79,19 +94,19 @@ pub struct HourlyStat {
 /// Get hourly stats using continuous aggregate
 pub async fn get_hourly_stats(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     hours: f64,
 ) -> Result<Vec<HourlyStat>, sqlx::Error> {
-    let rows: Vec<(DateTime<Utc>, i64, i64, Option<i32>)> = sqlx::query_as(
+    let rows: Vec<HourlyStatRow> = sqlx::query_as(
         r#"
         SELECT bucket, total, success_count, avg_latency_ms
         FROM request_metrics_hourly
-        WHERE user_id = $1
+        WHERE org_id = $1
           AND bucket >= NOW() - ($2 || ' hours')::INTERVAL
         ORDER BY bucket DESC
         "#,
     )
-    .bind(user_id)
+    .bind(org_id)
     .bind(hours)
     .fetch_all(pool)
     .await?;
@@ -119,23 +134,23 @@ pub struct TargetMetrics {
 
 pub async fn get_metrics_by_target(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     hours: f64,
 ) -> Result<Vec<TargetMetrics>, sqlx::Error> {
-    let rows: Vec<(String, Uuid, String, i64, i64, Option<i32>)> = sqlx::query_as(
+    let rows: Vec<TargetMetricsRow> = sqlx::query_as(
         r#"
         SELECT target_type, target_id, target_name, 
                COUNT(*)::BIGINT as total, 
                SUM(CASE WHEN success THEN 1 ELSE 0 END)::BIGINT as success_count,
                AVG(latency_ms)::INT as avg_latency_ms
         FROM request_metrics
-        WHERE user_id = $1
+        WHERE org_id = $1
           AND time >= NOW() - ($2 || ' hours')::INTERVAL
         GROUP BY target_type, target_id, target_name
         ORDER BY total DESC
         "#,
     )
-    .bind(user_id)
+    .bind(org_id)
     .bind(hours)
     .fetch_all(pool)
     .await?;
@@ -236,7 +251,7 @@ pub struct QueryMeta {
 
 pub async fn query_metrics(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     query: MetricsQuery,
 ) -> Result<QueryResponse, sqlx::Error> {
     let hours = query.time_range_hours.unwrap_or(24.0);
@@ -269,7 +284,7 @@ pub async fn query_metrics(
     
     // Build WHERE clause
     let mut where_parts = vec![
-        "user_id = $1".to_string(),
+        "org_id = $1".to_string(),
         format!("time >= NOW() - INTERVAL '{} hours'", hours),
     ];
     
@@ -322,9 +337,9 @@ pub async fn query_metrics(
     tracing::info!("Executing metrics query: {}", sql);
     
     // Execute query - 12 columns (4 grouping + 8 aggregates)
-    let rows: Vec<(Option<DateTime<Utc>>, Option<String>, Option<String>, Option<String>, i64, i64, i64, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>)> = 
+    let rows: Vec<QueryMetricsRow> = 
         sqlx::query_as(&sql)
-            .bind(user_id)
+            .bind(org_id)
             .fetch_all(pool)
             .await
             .unwrap_or_default();
@@ -400,10 +415,12 @@ pub struct SummaryStats {
 /// Get summary stats with percentiles for dashboard cards
 pub async fn get_summary_stats(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     hours: f64,
     target_name: Option<&str>,
 ) -> Result<SummaryStats, sqlx::Error> {
+    tracing::info!("Querying summary stats for org_id: {}", org_id);
+    
     // Build WHERE clause
     let target_filter = match target_name {
         Some(name) if !name.is_empty() => format!("AND target_name = '{}'", name.replace('\'', "''")),
@@ -411,6 +428,7 @@ pub async fn get_summary_stats(
     };
     
     // Query for latency percentiles
+    // COALESCE(..., 0) ensures we don't get NULLs for counts, butavgs/percentiles can be null
     let latency_sql = format!(
         r#"
         SELECT 
@@ -422,16 +440,16 @@ pub async fn get_summary_stats(
             COUNT(*)::BIGINT as total,
             SUM(CASE WHEN NOT success THEN 1 ELSE 0 END)::BIGINT as errors
         FROM request_metrics
-        WHERE user_id = $1
+        WHERE org_id = $1
           AND time >= NOW() - ($2 || ' hours')::INTERVAL
           {}
         "#,
         target_filter
     );
     
-    let latency_row: (Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<f64>, i64, i64) = 
+    let latency_row: LatencyRow = 
         sqlx::query_as(&latency_sql)
-            .bind(user_id)
+            .bind(org_id)
             .bind(hours)
             .fetch_one(pool)
             .await?;
@@ -446,7 +464,7 @@ pub async fn get_summary_stats(
         FROM (
             SELECT time_bucket('1 minute', time) as bucket, COUNT(*)::FLOAT8 as cnt
             FROM request_metrics
-            WHERE user_id = $1
+            WHERE org_id = $1
               AND time >= NOW() - ($2 || ' hours')::INTERVAL
               {}
             GROUP BY bucket
@@ -455,15 +473,15 @@ pub async fn get_summary_stats(
         target_filter
     );
     
-    let throughput_row: (Option<f64>, Option<f64>, Option<f64>) = 
+    let throughput_row: ThroughputRow = 
         sqlx::query_as(&throughput_sql)
-            .bind(user_id)
+            .bind(org_id)
             .bind(hours)
             .fetch_one(pool)
             .await?;
     
     let total_requests = latency_row.5;
-    let error_count = latency_row.6;
+    let error_count = latency_row.6.unwrap_or(0);
     let error_rate = if total_requests > 0 {
         (error_count as f64 / total_requests as f64) * 100.0
     } else {

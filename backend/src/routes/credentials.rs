@@ -13,7 +13,7 @@ use crate::services::crypto;
 use crate::messages::error;
 use crate::AppState;
 
-const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND user_id = $2";
+const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND org_id = $2";
 const SQL_SELECT_CREDENTIALS: &str = "SELECT id, server_id, credential_type, encrypted_value, name, created_at FROM credentials WHERE server_id = $1";
 const SQL_INSERT_CREDENTIAL: &str = "INSERT INTO credentials (server_id, credential_type, encrypted_value, name) VALUES ($1, $2, $3, $4) RETURNING id, server_id, credential_type, encrypted_value, name, created_at";
 const SQL_DELETE_CREDENTIAL: &str = "DELETE FROM credentials WHERE id = $1 AND server_id = $2";

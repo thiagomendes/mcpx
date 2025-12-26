@@ -8,3 +8,4 @@ pub mod gateways;
 pub mod metrics;
 pub mod audit;
 pub mod alerts;
+pub mod orgs;

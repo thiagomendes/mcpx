@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use oauth2::{
     basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl,
 };

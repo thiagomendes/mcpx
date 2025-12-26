@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 pub mod error {
     pub const INVALID_TOKEN: &str = "Invalid token";
     pub const MISSING_AUTH_HEADER: &str = "Missing authorization header";

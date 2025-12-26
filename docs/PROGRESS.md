@@ -210,6 +210,21 @@ Sistema de alertas com UI visual, background job, e painel de alertas ativos no 
 
 ---
 
+### Organizations & Multi-Provider Auth
+
+**Status:** ✅ **COMPLETO**
+
+Refactor completo para arquitetura multi-tenant baseada em Organizações.
+
+- **Multi-Tenant:** Recursos (servers, logs, metrics) isolados por `org_id`
+- **Auth Providers:** Google, GitHub, Microsoft Entra ID (com conta unificada por email)
+- **Member Roles:** Owner, Admin, Member
+- **Invite Flow:** Links de convite seguros e UI de aceitação explícita
+- **Org Management:** Criação, troca e remoção de organizações
+- **Spec:** [Authentication & Authorization](./authentication_spec.md) - Arquitetura de segurança (PATs, RBAC)
+
+---
+
 ## 📋 A FAZER (FUTURO)
 
 ### Multi-provider Auth

@@ -19,7 +19,7 @@
             v-for="provider in enabledProviders" 
             :key="provider.id"
             @click="login(provider.id)"
-            class="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors"
+            class="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors hover:opacity-90"
             :style="{ backgroundColor: provider.color, color: '#fff' }"
           >
             <component :is="getProviderIcon(provider.id)" class="w-5 h-5" />
@@ -46,6 +46,8 @@
 import { BoltIcon, ArrowLeftIcon } from '@heroicons/vue/24/outline'
 import { getEnabledProviders, loginWithProvider, type IdentityProviderType } from '@/lib/identityProviders'
 import GoogleIcon from '@/components/icons/GoogleIcon.vue'
+import GitHubIcon from '@/components/icons/GitHubIcon.vue'
+import MicrosoftIcon from '@/components/icons/MicrosoftIcon.vue'
 
 const enabledProviders = getEnabledProviders()
 
@@ -57,6 +59,10 @@ function getProviderIcon(providerId: IdentityProviderType) {
   switch (providerId) {
     case 'google':
       return GoogleIcon
+    case 'github':
+      return GitHubIcon
+    case 'microsoft':
+      return MicrosoftIcon
     default:
       return 'span'
   }

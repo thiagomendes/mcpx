@@ -10,6 +10,11 @@ const router = createRouter({
             component: () => import('@/views/Landing.vue'),
         },
         {
+            path: '/join/:token',
+            name: 'join-org',
+            component: () => import('@/views/JoinOrg.vue'),
+        },
+        {
             path: '/login',
             name: 'login',
             component: () => import('@/views/SignIn.vue'),
@@ -63,16 +68,32 @@ const router = createRouter({
             meta: { requiresAuth: true },
         },
         {
+            path: '/settings',
+            name: 'settings',
+            component: () => import('@/views/settings/Settings.vue'),
+            meta: { requiresAuth: true },
+        },
+        {
+            path: '/settings/members',
+            name: 'members',
+            component: () => import('@/views/settings/Members.vue'),
+            meta: { requiresAuth: true },
+        },
+        {
             path: '/oauth/callback',
             name: 'oauth-callback',
             component: () => import('@/views/OAuthCallback.vue'),
-
         },
     ],
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
     const authStore = useAuthStore()
+
+    // If user is authenticated but no user data loaded, fetch it
+    if (authStore.isAuthenticated && !authStore.user) {
+        await authStore.fetchUser()
+    }
 
     if (to.meta.requiresAuth && !authStore.isAuthenticated) {
         next('/login')

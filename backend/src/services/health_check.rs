@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Health Check Service
 //! 
 //! Periodic job that checks connectivity to all registered MCP servers.
@@ -21,7 +22,7 @@ const SQL_SELECT_CREDENTIAL: &str = "SELECT encrypted_value FROM credentials WHE
 #[derive(Debug, sqlx::FromRow)]
 struct ServerForHealthCheck {
     id: Uuid,
-    user_id: Uuid,
+    org_id: Uuid,
     url: String,
     auth_type: Option<String>,
     status: Option<String>,
@@ -49,7 +50,7 @@ pub async fn start_health_check_job(db: Database, encryption_key: String, interv
 async fn run_health_check_cycle(db: &Database, encryption_key: &str) -> Result<(), String> {
 
     let servers: Vec<ServerForHealthCheck> = sqlx::query_as(
-        "SELECT id, user_id, url, auth_type, status, oauth_client_id, oauth_token_url FROM servers WHERE status != 'pending_auth' AND enabled = true"
+        "SELECT id, org_id, url, auth_type, status, oauth_client_id, oauth_token_url FROM servers WHERE status != 'pending_auth' AND enabled = true"
     )
     .fetch_all(&db.pool)
     .await
@@ -133,16 +134,16 @@ async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encry
                     None
                 };
                 
-                if client_id.is_empty() || client_secret.is_none() || token_url.is_empty() {
+                if client_id.is_empty() || token_url.is_empty() {
                     (None, None)
-                } else {
+                } else if let Some(secret) = client_secret {
                     // Fetch token from token endpoint
                     let client = reqwest::Client::new();
                     let token_response = client.post(&token_url)
                         .json(&serde_json::json!({
                             "grant_type": "client_credentials",
                             "client_id": client_id,
-                            "client_secret": client_secret.unwrap()
+                            "client_secret": secret
                         }))
                         .send()
                         .await;
@@ -161,10 +162,13 @@ async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encry
                         }
                         _ => (None, None)
                     }
+                } else {
+                   (None, None)
                 }
             }
             Some("oauth_auto") => {
-                match get_access_token(db, server.id, server.user_id, encryption_key).await {
+                // For health check, we use server-level token lookup (no user context)
+                match get_access_token(db, server.id, encryption_key).await {
                     Ok(Some(token)) => (Some("Authorization".to_string()), Some(format!("Bearer {}", token))),
                     _ => (None, None)
                 }
@@ -188,7 +192,7 @@ async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encry
         }
         Err(e) => {
             let (new_status, error_msg) = if e.contains("invalid_token") || e.contains("Token is not active") {
-                match try_refresh_token(db, server.id, server.user_id, encryption_key).await {
+                match try_refresh_token(db, server.id, encryption_key).await {
                     Ok(new_token) => {
                         match test_mcp_connection(&server.url, Some("Authorization"), Some(&format!("Bearer {}", new_token))).await {
                             Ok(_) => {
@@ -226,12 +230,12 @@ async fn check_single_server(db: &Database, server: &ServerForHealthCheck, encry
     }
 }
 
-async fn get_access_token(db: &Database, server_id: Uuid, user_id: Uuid, encryption_key: &str) -> Result<Option<String>, String> {
+async fn get_access_token(db: &Database, server_id: Uuid, encryption_key: &str) -> Result<Option<String>, String> {
+    // For health check, get any available token for this server (no user context)
     let row: Option<(String, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
-        "SELECT access_token_encrypted, expires_at FROM oauth_tokens WHERE server_id = $1 AND user_id = $2"
+        "SELECT access_token_encrypted, expires_at FROM oauth_tokens WHERE server_id = $1 LIMIT 1"
     )
     .bind(server_id)
-    .bind(user_id)
     .fetch_optional(&db.pool)
     .await
     .map_err(|e| format!("Failed to fetch token: {}", e))?;
@@ -253,12 +257,11 @@ async fn get_access_token(db: &Database, server_id: Uuid, user_id: Uuid, encrypt
     }
 }
 
-async fn try_refresh_token(db: &Database, server_id: Uuid, user_id: Uuid, encryption_key: &str) -> Result<String, String> {
+async fn try_refresh_token(db: &Database, server_id: Uuid, encryption_key: &str) -> Result<String, String> {
     let row: Option<(Option<String>,)> = sqlx::query_as(
-        "SELECT refresh_token_encrypted FROM oauth_tokens WHERE server_id = $1 AND user_id = $2"
+        "SELECT refresh_token_encrypted FROM oauth_tokens WHERE server_id = $1 LIMIT 1"
     )
     .bind(server_id)
-    .bind(user_id)
     .fetch_optional(&db.pool)
     .await
     .map_err(|e| format!("Failed to fetch refresh token: {}", e))?;

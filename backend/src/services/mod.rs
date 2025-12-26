@@ -6,3 +6,4 @@ pub mod mcp_client;
 pub mod metrics;
 pub mod audit;
 pub mod alerts;
+pub mod org;

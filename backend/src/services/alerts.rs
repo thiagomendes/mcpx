@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Alerts Service
 //!
 //! Manages alert rules and their evaluation
@@ -14,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AlertRule {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub org_id: Uuid,
     pub name: String,
     pub alert_type: String,
     pub metric: String,
@@ -110,7 +111,7 @@ pub struct AlertHistoryResponse {
 /// Create a new alert rule
 pub async fn create_rule(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     input: CreateAlertRule,
 ) -> Result<AlertRule, sqlx::Error> {
     let id = Uuid::new_v4();
@@ -119,17 +120,17 @@ pub async fn create_rule(
     sqlx::query_as::<_, AlertRule>(
         r#"
         INSERT INTO alert_rules (
-            id, user_id, name, alert_type, metric, scope_type, scope_id,
+            id, org_id, name, alert_type, metric, scope_type, scope_id,
             operator, threshold, duration_minutes, notify_dashboard
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        RETURNING id, user_id, name, alert_type, metric, scope_type, scope_id,
+        RETURNING id, org_id, name, alert_type, metric, scope_type, scope_id,
                   operator, threshold, duration_minutes, notify_dashboard, enabled,
                   created_at, updated_at
         "#,
     )
     .bind(id)
-    .bind(user_id)
+    .bind(org_id)
     .bind(&input.name)
     .bind(&input.alert_type)
     .bind(&input.metric)
@@ -144,35 +145,35 @@ pub async fn create_rule(
 }
 
 /// List all alert rules for a user
-pub async fn list_rules(pool: &PgPool, user_id: Uuid) -> Result<Vec<AlertRule>, sqlx::Error> {
+pub async fn list_rules(pool: &PgPool, org_id: Uuid) -> Result<Vec<AlertRule>, sqlx::Error> {
     sqlx::query_as::<_, AlertRule>(
         r#"
-        SELECT id, user_id, name, alert_type, metric, scope_type, scope_id,
+        SELECT id, org_id, name, alert_type, metric, scope_type, scope_id,
                operator, threshold, duration_minutes, notify_dashboard, enabled,
                created_at, updated_at
         FROM alert_rules
-        WHERE user_id = $1
+        WHERE org_id = $1
         ORDER BY created_at DESC
         "#,
     )
-    .bind(user_id)
+    .bind(org_id)
     .fetch_all(pool)
     .await
 }
 
 /// Get a single alert rule
-pub async fn get_rule(pool: &PgPool, user_id: Uuid, rule_id: Uuid) -> Result<Option<AlertRule>, sqlx::Error> {
+pub async fn get_rule(pool: &PgPool, org_id: Uuid, rule_id: Uuid) -> Result<Option<AlertRule>, sqlx::Error> {
     sqlx::query_as::<_, AlertRule>(
         r#"
-        SELECT id, user_id, name, alert_type, metric, scope_type, scope_id,
+        SELECT id, org_id, name, alert_type, metric, scope_type, scope_id,
                operator, threshold, duration_minutes, notify_dashboard, enabled,
                created_at, updated_at
         FROM alert_rules
-        WHERE id = $1 AND user_id = $2
+        WHERE id = $1 AND org_id = $2
         "#,
     )
     .bind(rule_id)
-    .bind(user_id)
+    .bind(org_id)
     .fetch_optional(pool)
     .await
 }
@@ -180,7 +181,7 @@ pub async fn get_rule(pool: &PgPool, user_id: Uuid, rule_id: Uuid) -> Result<Opt
 /// Update an alert rule
 pub async fn update_rule(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     rule_id: Uuid,
     input: UpdateAlertRule,
 ) -> Result<Option<AlertRule>, sqlx::Error> {
@@ -200,15 +201,15 @@ pub async fn update_rule(
     if input.enabled.is_some() { param_count += 1; updates.push(format!("enabled = ${}", param_count)); }
     
     if updates.is_empty() {
-        return get_rule(pool, user_id, rule_id).await;
+        return get_rule(pool, org_id, rule_id).await;
     }
     
     let sql = format!(
         r#"
         UPDATE alert_rules
         SET {}
-        WHERE id = $1 AND user_id = $2
-        RETURNING id, user_id, name, alert_type, metric, scope_type, scope_id,
+        WHERE id = $1 AND org_id = $2
+        RETURNING id, org_id, name, alert_type, metric, scope_type, scope_id,
                   operator, threshold, duration_minutes, notify_dashboard, enabled,
                   created_at, updated_at
         "#,
@@ -217,7 +218,7 @@ pub async fn update_rule(
     
     let mut query = sqlx::query_as::<_, AlertRule>(&sql)
         .bind(rule_id)
-        .bind(user_id);
+        .bind(org_id);
     
     if let Some(v) = &input.name { query = query.bind(v); }
     if let Some(v) = &input.alert_type { query = query.bind(v); }
@@ -234,12 +235,12 @@ pub async fn update_rule(
 }
 
 /// Delete an alert rule
-pub async fn delete_rule(pool: &PgPool, user_id: Uuid, rule_id: Uuid) -> Result<bool, sqlx::Error> {
+pub async fn delete_rule(pool: &PgPool, org_id: Uuid, rule_id: Uuid) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
-        "DELETE FROM alert_rules WHERE id = $1 AND user_id = $2"
+        "DELETE FROM alert_rules WHERE id = $1 AND org_id = $2"
     )
     .bind(rule_id)
-    .bind(user_id)
+    .bind(org_id)
     .execute(pool)
     .await?;
     
@@ -251,7 +252,7 @@ pub async fn delete_rule(pool: &PgPool, user_id: Uuid, rule_id: Uuid) -> Result<
 // ============================================================================
 
 /// Get active alerts for a user (dashboard panel)
-pub async fn get_active_alerts(pool: &PgPool, user_id: Uuid) -> Result<Vec<ActiveAlert>, sqlx::Error> {
+pub async fn get_active_alerts(pool: &PgPool, org_id: Uuid) -> Result<Vec<ActiveAlert>, sqlx::Error> {
     sqlx::query_as::<_, ActiveAlert>(
         r#"
         SELECT h.id, h.rule_id, r.name as rule_name, r.alert_type, r.metric,
@@ -263,11 +264,11 @@ pub async fn get_active_alerts(pool: &PgPool, user_id: Uuid) -> Result<Vec<Activ
         JOIN alert_rules r ON r.id = h.rule_id
         LEFT JOIN servers s ON r.scope_type = 'server' AND r.scope_id = s.id
         LEFT JOIN gateways g ON r.scope_type = 'gateway' AND r.scope_id = g.id
-        WHERE r.user_id = $1 AND h.status IN ('triggered', 'acknowledged')
+        WHERE r.org_id = $1 AND h.status IN ('triggered', 'acknowledged')
         ORDER BY h.triggered_at DESC
         "#,
     )
-    .bind(user_id)
+    .bind(org_id)
     .fetch_all(pool)
     .await
 }
@@ -275,7 +276,7 @@ pub async fn get_active_alerts(pool: &PgPool, user_id: Uuid) -> Result<Vec<Activ
 /// Get alert history with pagination
 pub async fn list_history(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     query: AlertHistoryQuery,
 ) -> Result<AlertHistoryResponse, sqlx::Error> {
     let limit = query.limit.min(100);
@@ -286,25 +287,25 @@ pub async fn list_history(
         r#"
         SELECT COUNT(*)::BIGINT FROM alert_history h
         JOIN alert_rules r ON r.id = h.rule_id
-        WHERE r.user_id = $1 AND h.status = $2
+        WHERE r.org_id = $1 AND h.status = $2
         "#
     } else {
         r#"
         SELECT COUNT(*)::BIGINT FROM alert_history h
         JOIN alert_rules r ON r.id = h.rule_id
-        WHERE r.user_id = $1
+        WHERE r.org_id = $1
         "#
     };
     
     let total: (i64,) = if let Some(ref status) = query.status {
         sqlx::query_as(count_sql)
-            .bind(user_id)
+            .bind(org_id)
             .bind(status)
             .fetch_one(pool)
             .await?
     } else {
         sqlx::query_as(count_sql)
-            .bind(user_id)
+            .bind(org_id)
             .fetch_one(pool)
             .await?
     };
@@ -316,7 +317,7 @@ pub async fn list_history(
             SELECT h.id, h.rule_id, h.triggered_at, h.resolved_at, h.trigger_value, h.status
             FROM alert_history h
             JOIN alert_rules r ON r.id = h.rule_id
-            WHERE r.user_id = $1 AND h.status = $2
+            WHERE r.org_id = $1 AND h.status = $2
             ORDER BY h.triggered_at DESC
             LIMIT {} OFFSET {}
             "#,
@@ -328,7 +329,7 @@ pub async fn list_history(
             SELECT h.id, h.rule_id, h.triggered_at, h.resolved_at, h.trigger_value, h.status
             FROM alert_history h
             JOIN alert_rules r ON r.id = h.rule_id
-            WHERE r.user_id = $1
+            WHERE r.org_id = $1
             ORDER BY h.triggered_at DESC
             LIMIT {} OFFSET {}
             "#,
@@ -338,13 +339,13 @@ pub async fn list_history(
     
     let data: Vec<AlertHistory> = if let Some(ref status) = query.status {
         sqlx::query_as(&data_sql)
-            .bind(user_id)
+            .bind(org_id)
             .bind(status)
             .fetch_all(pool)
             .await?
     } else {
         sqlx::query_as(&data_sql)
-            .bind(user_id)
+            .bind(org_id)
             .fetch_all(pool)
             .await?
     };
@@ -360,7 +361,7 @@ pub async fn list_history(
 /// Acknowledge an alert
 pub async fn acknowledge_alert(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     alert_id: Uuid,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -368,11 +369,11 @@ pub async fn acknowledge_alert(
         UPDATE alert_history h
         SET status = 'acknowledged'
         FROM alert_rules r
-        WHERE h.id = $1 AND h.rule_id = r.id AND r.user_id = $2 AND h.status = 'triggered'
+        WHERE h.id = $1 AND h.rule_id = r.id AND r.org_id = $2 AND h.status = 'triggered'
         "#
     )
     .bind(alert_id)
-    .bind(user_id)
+    .bind(org_id)
     .execute(pool)
     .await?;
     
@@ -438,7 +439,7 @@ pub async fn has_active_alert(pool: &PgPool, rule_id: Uuid) -> Result<bool, sqlx
 pub async fn get_enabled_rules(pool: &PgPool) -> Result<Vec<AlertRule>, sqlx::Error> {
     sqlx::query_as::<_, AlertRule>(
         r#"
-        SELECT id, user_id, name, alert_type, metric, scope_type, scope_id,
+        SELECT id, org_id, name, alert_type, metric, scope_type, scope_id,
                operator, threshold, duration_minutes, notify_dashboard, enabled,
                created_at, updated_at
         FROM alert_rules
