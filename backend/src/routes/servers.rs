@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -5,11 +6,11 @@ use axum::{
 };
 use crate::messages::error;
 use std::sync::Arc;
-use uuid::Uuid;
+// use uuid::Uuid;
 
 use crate::AppState;
 use crate::models::server::{Server, ServerResponse, CreateServerRequest, UpdateServerRequest};
-use crate::routes::auth::{extract_token, validate_token};
+use crate::routes::auth::extract_org_context;
 
 use rmcp::{
     ServiceExt,
@@ -18,17 +19,21 @@ use rmcp::{
     service::RunningService,
 };
 
-const SQL_LIST_SERVERS: &str = "SELECT * FROM servers WHERE user_id = $1 ORDER BY created_at DESC";
+// ============================================
+// SQL QUERIES - Now using org_id instead of user_id
+// ============================================
+
+const SQL_LIST_SERVERS: &str = "SELECT * FROM servers WHERE org_id = $1 ORDER BY created_at DESC";
 
 const SQL_INSERT_SERVER: &str = r#"
-    INSERT INTO servers (user_id, name, url, transport, auth_type, status, oauth_client_id, oauth_authorization_url, oauth_token_url, oauth_scopes, oauth_use_pkce)
+    INSERT INTO servers (org_id, name, url, transport, auth_type, status, oauth_client_id, oauth_authorization_url, oauth_token_url, oauth_scopes, oauth_use_pkce)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     RETURNING *
 "#;
 
 const SQL_INSERT_CREDENTIAL: &str = "INSERT INTO credentials (server_id, credential_type, encrypted_value, name) VALUES ($1, $2, $3, $4)";
 
-const SQL_SELECT_SERVER_BY_NAME: &str = "SELECT * FROM servers WHERE user_id = $1 AND name = $2";
+const SQL_SELECT_SERVER_BY_NAME: &str = "SELECT * FROM servers WHERE org_id = $1 AND name = $2";
 
 const SQL_UPDATE_SERVER: &str = r#"
     UPDATE servers SET
@@ -37,12 +42,13 @@ const SQL_UPDATE_SERVER: &str = r#"
         transport = COALESCE($5, transport),
         enabled = COALESCE($6, enabled),
         updated_at = NOW()
-    WHERE user_id = $1 AND name = $2
+    WHERE org_id = $1 AND name = $2
     RETURNING *
 "#;
 
-const SQL_DELETE_SERVER: &str = "DELETE FROM servers WHERE user_id = $1 AND name = $2";
+const SQL_DELETE_SERVER: &str = "DELETE FROM servers WHERE org_id = $1 AND name = $2";
 
+// Note: oauth_tokens still uses user_id because tokens are per-user, not per-org
 const SQL_SELECT_OAUTH_TOKEN: &str = "SELECT access_token_encrypted FROM oauth_tokens WHERE server_id = $1 AND user_id = $2";
 
 const SQL_UPDATE_SERVER_STATUS: &str = "UPDATE servers SET status = 'healthy', last_health_check = NOW(), health_error = NULL, updated_at = NOW() WHERE id = $1";
@@ -51,33 +57,26 @@ const SQL_UPDATE_SERVER_ERROR: &str = "UPDATE servers SET status = 'unhealthy', 
 
 const ERR_FAILED_TO_STORE_CREDENTIAL: &str = "Failed to store credential";
 
-
-async fn get_user_id(
-    headers: &axum::http::HeaderMap,
-    state: &AppState,
-) -> Result<Uuid, (StatusCode, String)> {
-    let token = extract_token(headers)?;
-    let claims = validate_token(&token, &state.config.jwt_secret)?;
-    Uuid::parse_str(&claims.sub)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))
-}
+// ============================================
+// ROUTE HANDLERS
+// ============================================
 
 pub async fn list_servers(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Vec<ServerResponse>>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     let servers = sqlx::query_as::<_, Server>(SQL_LIST_SERVERS)
-    .bind(user_id)
-    .fetch_all(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .bind(org_id)
+        .fetch_all(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
     let base_url = &state.config.base_url;
     let responses: Vec<ServerResponse> = servers
         .into_iter()
-        .map(|s| ServerResponse::from_server(s, user_id, base_url))
+        .map(|s| ServerResponse::from_server(s, &org_slug, base_url))
         .collect();
 
     Ok(Json(responses))
@@ -88,14 +87,11 @@ pub async fn create_server(
     headers: axum::http::HeaderMap,
     Json(payload): Json<CreateServerRequest>,
 ) -> Result<(StatusCode, Json<ServerResponse>), (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
-
+    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     if !payload.name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
         return Err((StatusCode::BAD_REQUEST, error::INVALID_SERVER_NAME.to_string()));
     }
-
-
 
     let initial_status = if payload.auth_type == "oauth_auto" {
         "pending_auth"
@@ -104,28 +100,28 @@ pub async fn create_server(
     };
 
     let server = sqlx::query_as::<_, Server>(SQL_INSERT_SERVER)
-    .bind(user_id)
-    .bind(&payload.name)
-    .bind(&payload.url)
-    .bind(&payload.transport)
-    .bind(&payload.auth_type)
-    .bind(initial_status)
-    .bind(&payload.oauth_client_id)
-    .bind(&payload.oauth_authorization_url)
-    .bind(&payload.oauth_token_url)
-    .bind(&payload.oauth_scopes)
-    .bind(if payload.auth_type.starts_with("oauth") { Some(true) } else { None })
-    .fetch_one(&state.db.pool)
-    .await
-    .map_err(|e| {
-        if e.to_string().contains("duplicate key") {
-            (StatusCode::CONFLICT, error::SERVER_EXISTS.to_string())
-        } else {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e))
-        }
-    })?;
+        .bind(org_id)
+        .bind(&payload.name)
+        .bind(&payload.url)
+        .bind(&payload.transport)
+        .bind(&payload.auth_type)
+        .bind(initial_status)
+        .bind(&payload.oauth_client_id)
+        .bind(&payload.oauth_authorization_url)
+        .bind(&payload.oauth_token_url)
+        .bind(&payload.oauth_scopes)
+        .bind(if payload.auth_type.starts_with("oauth") { Some(true) } else { None })
+        .fetch_one(&state.db.pool)
+        .await
+        .map_err(|e| {
+            if e.to_string().contains("duplicate key") {
+                (StatusCode::CONFLICT, error::SERVER_EXISTS.to_string())
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e))
+            }
+        })?;
 
-
+    // Store credentials
     if let Some(ref api_key) = payload.api_key {
         if !api_key.is_empty() {
             let key = crate::services::crypto::derive_key(&state.config.encryption_key);
@@ -133,13 +129,13 @@ pub async fn create_server(
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
             
             sqlx::query(SQL_INSERT_CREDENTIAL)
-            .bind(server.id)
-            .bind("api_key")
-            .bind(&encrypted)
-            .bind("API Key")
-            .execute(&state.db.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", ERR_FAILED_TO_STORE_CREDENTIAL, e)))?;
+                .bind(server.id)
+                .bind("api_key")
+                .bind(&encrypted)
+                .bind("API Key")
+                .execute(&state.db.pool)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", ERR_FAILED_TO_STORE_CREDENTIAL, e)))?;
         }
     }
 
@@ -150,13 +146,13 @@ pub async fn create_server(
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
             
             sqlx::query(SQL_INSERT_CREDENTIAL)
-            .bind(server.id)
-            .bind("bearer")
-            .bind(&encrypted)
-            .bind("Bearer Token")
-            .execute(&state.db.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", ERR_FAILED_TO_STORE_CREDENTIAL, e)))?;
+                .bind(server.id)
+                .bind("bearer")
+                .bind(&encrypted)
+                .bind("Bearer Token")
+                .execute(&state.db.pool)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", ERR_FAILED_TO_STORE_CREDENTIAL, e)))?;
         }
     }
 
@@ -167,18 +163,18 @@ pub async fn create_server(
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
             
             sqlx::query(SQL_INSERT_CREDENTIAL)
-            .bind(server.id)
-            .bind("oauth_client_secret")
-            .bind(&encrypted)
-            .bind("OAuth Client Secret")
-            .execute(&state.db.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", ERR_FAILED_TO_STORE_CREDENTIAL, e)))?;
+                .bind(server.id)
+                .bind("oauth_client_secret")
+                .bind(&encrypted)
+                .bind("OAuth Client Secret")
+                .execute(&state.db.pool)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", ERR_FAILED_TO_STORE_CREDENTIAL, e)))?;
         }
     }
 
     let base_url = &state.config.base_url;
-    Ok((StatusCode::CREATED, Json(ServerResponse::from_server(server, user_id, base_url))))
+    Ok((StatusCode::CREATED, Json(ServerResponse::from_server(server, &org_slug, base_url))))
 }
 
 pub async fn get_server(
@@ -186,18 +182,18 @@ pub async fn get_server(
     headers: axum::http::HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<ServerResponse>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     let server = sqlx::query_as::<_, Server>(SQL_SELECT_SERVER_BY_NAME)
-    .bind(user_id)
-    .bind(&name)
-    .fetch_optional(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
-    .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
+        .bind(org_id)
+        .bind(&name)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+        .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let base_url = &state.config.base_url;
-    Ok(Json(ServerResponse::from_server(server, user_id, base_url)))
+    Ok(Json(ServerResponse::from_server(server, &org_slug, base_url)))
 }
 
 pub async fn update_server(
@@ -206,23 +202,22 @@ pub async fn update_server(
     Path(name): Path<String>,
     Json(payload): Json<UpdateServerRequest>,
 ) -> Result<Json<ServerResponse>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
-
+    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     let server = sqlx::query_as::<_, Server>(SQL_UPDATE_SERVER)
-    .bind(user_id)
-    .bind(&name)
-    .bind(&payload.name)
-    .bind(&payload.url)
-    .bind(&payload.transport)
-    .bind(payload.enabled)
-    .fetch_optional(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
-    .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
+        .bind(org_id)
+        .bind(&name)
+        .bind(&payload.name)
+        .bind(&payload.url)
+        .bind(&payload.transport)
+        .bind(payload.enabled)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+        .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let base_url = &state.config.base_url;
-    Ok(Json(ServerResponse::from_server(server, user_id, base_url)))
+    Ok(Json(ServerResponse::from_server(server, &org_slug, base_url)))
 }
 
 pub async fn delete_server(
@@ -230,10 +225,10 @@ pub async fn delete_server(
     headers: axum::http::HeaderMap,
     Path(name): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     let result = sqlx::query(SQL_DELETE_SERVER)
-        .bind(user_id)
+        .bind(org_id)
         .bind(&name)
         .execute(&state.db.pool)
         .await
@@ -253,15 +248,15 @@ pub async fn test_server(
     headers: axum::http::HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<TestResult>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     let server = sqlx::query_as::<_, Server>(SQL_SELECT_SERVER_BY_NAME)
-    .bind(user_id)
-    .bind(&name)
-    .fetch_optional(&state.db.pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
-    .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
+        .bind(org_id)
+        .bind(&name)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+        .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     // Fetch credentials based on auth_type
     let (auth_header_name, auth_header_value): (Option<String>, Option<String>) = 
@@ -320,6 +315,7 @@ pub async fn test_server(
             }
             Some("oauth_auto") => {
                 tracing::info!("Server {} requires OAuth, fetching token", name);
+                // OAuth tokens are per-user, so we still use user_id here
                 let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_OAUTH_TOKEN)
                     .bind(server.id)
                     .bind(user_id)
@@ -347,10 +343,8 @@ pub async fn test_server(
             Some("oauth_client_credentials") => {
                 tracing::info!("Server {} requires OAuth Client Credentials", name);
                 
-                // Get client_id from server record
                 let client_id = server.oauth_client_id.clone().unwrap_or_default();
                 
-                // Get client_secret from credentials
                 let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
                     .bind(server.id)
                     .bind("oauth_client_secret")
@@ -365,20 +359,18 @@ pub async fn test_server(
                     None
                 };
                 
-                // Get token URL from server record
                 let token_url = server.oauth_token_url.clone().unwrap_or_default();
                 
-                if client_id.is_empty() || client_secret.is_none() || token_url.is_empty() {
+                if client_id.is_empty() || token_url.is_empty() {
                     tracing::warn!("Missing OAuth Client Credentials config for server {}", name);
                     (None, None)
-                } else {
-                    // Fetch token from token endpoint
+                } else if let Some(secret) = client_secret {
                     let client = reqwest::Client::new();
                     let token_response = client.post(&token_url)
                         .json(&serde_json::json!({
                             "grant_type": "client_credentials",
                             "client_id": client_id,
-                            "client_secret": client_secret.unwrap()
+                            "client_secret": secret
                         }))
                         .send()
                         .await;
@@ -407,6 +399,9 @@ pub async fn test_server(
                             (None, None)
                         }
                     }
+                } else {
+                    tracing::warn!("Missing OAuth Client Credentials config for server {}", name);
+                    (None, None)
                 }
             }
             _ => {
@@ -422,7 +417,6 @@ pub async fn test_server(
     
     match result {
         Ok(tools) => {
-        
             let _ = sqlx::query(SQL_UPDATE_SERVER_STATUS)
                 .bind(server.id)
                 .execute(&state.db.pool)
@@ -449,7 +443,6 @@ pub async fn test_server(
 async fn test_mcp_connection(server_url: &str, auth_header_name: Option<&str>, auth_header_value: Option<&str>) -> Result<Vec<ToolInfo>, String> {
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
     
-    // Build custom headers if auth is provided
     let mut custom_headers = HeaderMap::new();
     if let (Some(name), Some(value)) = (auth_header_name, auth_header_value) {
         let header_name = HeaderName::from_bytes(name.as_bytes())
@@ -459,7 +452,6 @@ async fn test_mcp_connection(server_url: &str, auth_header_name: Option<&str>, a
         custom_headers.insert(header_name, header_value);
     }
 
-    // Build client with custom headers
     let client = if custom_headers.is_empty() {
         reqwest::Client::new()
     } else {
@@ -514,5 +506,3 @@ pub struct ToolInfo {
     name: String,
     description: Option<String>,
 }
-
-

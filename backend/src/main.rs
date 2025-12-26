@@ -129,9 +129,15 @@ async fn main() {
     
         .route("/api/health", get(|| async { "OK" }))
     
+        // OAuth routes - generic handler for all providers
+        .route("/api/auth/:provider", get(routes::auth::oauth_login))
+        .route("/api/auth/:provider/callback", get(routes::auth::oauth_callback))
+        // Legacy Google routes (redirect to generic)
         .route("/api/auth/google", get(routes::auth::google_login))
         .route("/api/auth/google/callback", get(routes::auth::google_callback))
+        // User endpoints
         .route("/api/auth/me", get(routes::auth::get_current_user))
+        .route("/api/auth/switch-org/:org_id", post(routes::auth::switch_org))
         .route("/api/auth/logout", post(routes::auth::logout))
     
         .route("/api/servers", get(routes::servers::list_servers))
@@ -183,8 +189,16 @@ async fn main() {
         .route("/api/alerts/:id", delete(routes::alerts::delete_rule))
         .route("/api/alerts/:id/acknowledge", post(routes::alerts::acknowledge_alert))
     
-        // MCP Proxy
-        .route("/mcp/:user_id/:server_name", post(routes::proxy::mcp_proxy))
+        // Organizations
+        .route("/api/orgs", post(routes::orgs::create_org))
+        .route("/api/orgs/:id", delete(routes::orgs::delete_org))
+        .route("/api/orgs/members", get(routes::orgs::list_members))
+        .route("/api/orgs/members/:user_id", delete(routes::orgs::remove_member))
+        .route("/api/orgs/members/invite", post(routes::orgs::invite_member))
+        .route("/api/orgs/join/:token", get(routes::orgs::get_invite_details).post(routes::orgs::join_org))
+    
+        // MCP Proxy - now uses org_slug instead of user_id
+        .route("/mcp/:org_slug/:server_name", post(routes::proxy::mcp_proxy))
     
         .layer(cors)
         .layer(TraceLayer::new_for_http())

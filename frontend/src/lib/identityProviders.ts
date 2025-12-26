@@ -29,23 +29,23 @@ export const IDENTITY_PROVIDERS: Record<IdentityProviderType, IdentityProviderCo
         color: '#4285F4',
         hoverColor: '#3367D6',
     },
-    microsoft: {
-        id: 'microsoft',
-        name: 'Microsoft',
-        icon: 'microsoft',
-        enabled: false, // Enable when backend implements Microsoft OAuth
-        loginPath: `${BACKEND_BASE}/auth/microsoft/login`,
-        color: '#00A4EF',
-        hoverColor: '#0078D4',
-    },
     github: {
         id: 'github',
         name: 'GitHub',
         icon: 'github',
-        enabled: false, // Enable when backend implements GitHub OAuth
-        loginPath: `${BACKEND_BASE}/auth/github/login`,
-        color: '#24292E',
-        hoverColor: '#1B1F23',
+        enabled: true, // Now enabled
+        loginPath: `${BACKEND_BASE}/auth/github`,
+        color: '#6e5494', // Purple for better contrast on dark theme
+        hoverColor: '#5a3d7a',
+    },
+    microsoft: {
+        id: 'microsoft',
+        name: 'Microsoft',
+        icon: 'microsoft',
+        enabled: true, // Now enabled
+        loginPath: `${BACKEND_BASE}/auth/microsoft`,
+        color: '#00A4EF',
+        hoverColor: '#0078D4',
     },
 } as const;
 

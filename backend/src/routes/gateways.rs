@@ -8,8 +8,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::routes::auth::{extract_token, validate_token, get_dev_user_id};
+use crate::routes::auth::extract_org_context;
 use crate::messages::error;
+
+// ============================================
+// SQL QUERIES - Now using org_id instead of user_id
+// ============================================
 
 const SQL_SELECT_GATEWAYS: &str = r#"
     SELECT g.id, g.name, g.slug, g.enabled, g.created_at, g.updated_at,
@@ -20,7 +24,7 @@ const SQL_SELECT_GATEWAYS: &str = r#"
     FROM gateways g
     LEFT JOIN gateway_servers gs ON gs.gateway_id = g.id
     LEFT JOIN servers s ON s.id = gs.server_id
-    WHERE g.user_id = $1
+    WHERE g.org_id = $1
     GROUP BY g.id
     ORDER BY g.created_at DESC
 "#;
@@ -34,37 +38,43 @@ const SQL_SELECT_GATEWAY_BY_SLUG: &str = r#"
     FROM gateways g
     LEFT JOIN gateway_servers gs ON gs.gateway_id = g.id
     LEFT JOIN servers s ON s.id = gs.server_id
-    WHERE g.user_id = $1 AND g.slug = $2
+    WHERE g.org_id = $1 AND g.slug = $2
     GROUP BY g.id
 "#;
 
 const SQL_INSERT_GATEWAY: &str = r#"
-    INSERT INTO gateways (user_id, name, slug, enabled)
+    INSERT INTO gateways (org_id, name, slug, enabled)
     VALUES ($1, $2, $3, $4)
     RETURNING id, name, slug, enabled, created_at, updated_at
 "#;
 
 const SQL_UPDATE_GATEWAY: &str = r#"
     UPDATE gateways SET name = $1, slug = $2, enabled = $3, updated_at = NOW()
-    WHERE id = $4 AND user_id = $5
+    WHERE id = $4 AND org_id = $5
     RETURNING id, name, slug, enabled, created_at, updated_at
 "#;
 
-const SQL_DELETE_GATEWAY: &str = "DELETE FROM gateways WHERE slug = $1 AND user_id = $2";
+const SQL_DELETE_GATEWAY: &str = "DELETE FROM gateways WHERE slug = $1 AND org_id = $2";
 
 const SQL_ADD_SERVER_TO_GATEWAY: &str = r#"
     INSERT INTO gateway_servers (gateway_id, server_id, priority)
     SELECT $1, s.id, COALESCE((SELECT MAX(priority) + 1 FROM gateway_servers WHERE gateway_id = $1), 0)
-    FROM servers s WHERE s.name = $2 AND s.user_id = $3
+    FROM servers s WHERE s.name = $2 AND s.org_id = $3
     ON CONFLICT (gateway_id, server_id) DO NOTHING
 "#;
 
 const SQL_REMOVE_SERVER_FROM_GATEWAY: &str = r#"
     DELETE FROM gateway_servers 
-    WHERE gateway_id = $1 AND server_id = (SELECT id FROM servers WHERE name = $2 AND user_id = $3)
+    WHERE gateway_id = $1 AND server_id = (SELECT id FROM servers WHERE name = $2 AND org_id = $3)
 "#;
 
-const SQL_GET_GATEWAY_ID: &str = "SELECT id FROM gateways WHERE slug = $1 AND user_id = $2";
+const SQL_GET_GATEWAY_ID: &str = "SELECT id FROM gateways WHERE slug = $1 AND org_id = $2";
+
+// ============================================
+// TYPES
+// ============================================
+
+type GatewayDbRow = (Uuid, String, String, bool, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, serde_json::Value);
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct GatewayRow {
@@ -118,18 +128,9 @@ pub struct AddServerRequest {
     pub server_name: String,
 }
 
-async fn get_user_id(
-    headers: &axum::http::HeaderMap,
-    state: &AppState,
-) -> Result<Uuid, (StatusCode, String)> {
-    if let Some(dev_user_id) = get_dev_user_id() {
-        return Ok(dev_user_id);
-    }
-    let token = extract_token(headers)?;
-    let claims = validate_token(&token, &state.config.jwt_secret)?;
-    Uuid::parse_str(&claims.sub)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))
-}
+// ============================================
+// HELPERS
+// ============================================
 
 fn parse_servers_json(json: serde_json::Value) -> Vec<GatewayServer> {
     json.as_array()
@@ -146,15 +147,19 @@ fn parse_servers_json(json: serde_json::Value) -> Vec<GatewayServer> {
         .unwrap_or_default()
 }
 
+// ============================================
+// ROUTE HANDLERS
+// ============================================
+
 pub async fn list_gateways(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Vec<GatewayResponse>>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
-    let rows: Vec<(Uuid, String, String, bool, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, serde_json::Value)> = 
+    let rows: Vec<GatewayDbRow> = 
         sqlx::query_as(SQL_SELECT_GATEWAYS)
-            .bind(user_id)
+            .bind(org_id)
             .fetch_all(&state.db.pool)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -167,7 +172,7 @@ pub async fn list_gateways(
                 name,
                 slug: slug.clone(),
                 enabled,
-                proxy_url: format!("{}/mcp/{}/{}", state.config.base_url, user_id, slug),
+                proxy_url: format!("{}/mcp/{}/{}", state.config.base_url, org_slug, slug),
                 servers: parse_servers_json(servers_json),
                 created_at,
                 updated_at,
@@ -183,11 +188,11 @@ pub async fn get_gateway(
     headers: axum::http::HeaderMap,
     Path(slug): Path<String>,
 ) -> Result<Json<GatewayResponse>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
-    let row: Option<(Uuid, String, String, bool, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, serde_json::Value)> = 
+    let row: Option<GatewayDbRow> = 
         sqlx::query_as(SQL_SELECT_GATEWAY_BY_SLUG)
-            .bind(user_id)
+            .bind(org_id)
             .bind(&slug)
             .fetch_optional(&state.db.pool)
             .await
@@ -200,7 +205,7 @@ pub async fn get_gateway(
                 name,
                 slug: slug.clone(),
                 enabled,
-                proxy_url: format!("{}/mcp/{}/{}", state.config.base_url, user_id, slug),
+                proxy_url: format!("{}/mcp/{}/{}", state.config.base_url, org_slug, slug),
                 servers: parse_servers_json(servers_json),
                 created_at,
                 updated_at,
@@ -215,14 +220,14 @@ pub async fn create_gateway(
     headers: axum::http::HeaderMap,
     Json(payload): Json<CreateGatewayRequest>,
 ) -> Result<(StatusCode, Json<GatewayResponse>), (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     if !payload.slug.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
         return Err((StatusCode::BAD_REQUEST, "Invalid slug format".to_string()));
     }
 
     let row: GatewayRow = sqlx::query_as(SQL_INSERT_GATEWAY)
-        .bind(user_id)
+        .bind(org_id)
         .bind(&payload.name)
         .bind(&payload.slug)
         .bind(payload.enabled)
@@ -234,7 +239,7 @@ pub async fn create_gateway(
         let _ = sqlx::query(SQL_ADD_SERVER_TO_GATEWAY)
             .bind(row.id)
             .bind(server_name)
-            .bind(user_id)
+            .bind(org_id)
             .execute(&state.db.pool)
             .await;
     }
@@ -244,7 +249,7 @@ pub async fn create_gateway(
         name: row.name,
         slug: row.slug.clone(),
         enabled: row.enabled,
-        proxy_url: format!("{}/mcp/{}/{}", state.config.base_url, user_id, row.slug),
+        proxy_url: format!("{}/mcp/{}/{}", state.config.base_url, org_slug, row.slug),
         servers: vec![],
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -257,11 +262,11 @@ pub async fn update_gateway(
     Path(slug): Path<String>,
     Json(payload): Json<UpdateGatewayRequest>,
 ) -> Result<Json<GatewayResponse>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
-    let existing: Option<GatewayRow> = sqlx::query_as("SELECT * FROM gateways WHERE slug = $1 AND user_id = $2")
+    let existing: Option<GatewayRow> = sqlx::query_as("SELECT * FROM gateways WHERE slug = $1 AND org_id = $2")
         .bind(&slug)
-        .bind(user_id)
+        .bind(org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -277,7 +282,7 @@ pub async fn update_gateway(
         .bind(&new_slug)
         .bind(new_enabled)
         .bind(existing.id)
-        .bind(user_id)
+        .bind(org_id)
         .fetch_one(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -287,7 +292,7 @@ pub async fn update_gateway(
         name: row.name,
         slug: row.slug.clone(),
         enabled: row.enabled,
-        proxy_url: format!("{}/mcp/{}/{}", state.config.base_url, user_id, row.slug),
+        proxy_url: format!("{}/mcp/{}/{}", state.config.base_url, org_slug, row.slug),
         servers: vec![],
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -299,11 +304,11 @@ pub async fn delete_gateway(
     headers: axum::http::HeaderMap,
     Path(slug): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     sqlx::query(SQL_DELETE_GATEWAY)
         .bind(&slug)
-        .bind(user_id)
+        .bind(org_id)
         .execute(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -317,11 +322,11 @@ pub async fn add_server_to_gateway(
     Path(slug): Path<String>,
     Json(payload): Json<AddServerRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     let gateway_id: Option<(Uuid,)> = sqlx::query_as(SQL_GET_GATEWAY_ID)
         .bind(&slug)
-        .bind(user_id)
+        .bind(org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -331,7 +336,7 @@ pub async fn add_server_to_gateway(
     sqlx::query(SQL_ADD_SERVER_TO_GATEWAY)
         .bind(gateway_id)
         .bind(&payload.server_name)
-        .bind(user_id)
+        .bind(org_id)
         .execute(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -344,11 +349,11 @@ pub async fn remove_server_from_gateway(
     headers: axum::http::HeaderMap,
     Path((slug, server_name)): Path<(String, String)>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     let gateway_id: Option<(Uuid,)> = sqlx::query_as(SQL_GET_GATEWAY_ID)
         .bind(&slug)
-        .bind(user_id)
+        .bind(org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -358,7 +363,7 @@ pub async fn remove_server_from_gateway(
     sqlx::query(SQL_REMOVE_SERVER_FROM_GATEWAY)
         .bind(gateway_id)
         .bind(&server_name)
-        .bind(user_id)
+        .bind(org_id)
         .execute(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;

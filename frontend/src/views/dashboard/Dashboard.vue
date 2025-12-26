@@ -222,6 +222,17 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler)
 
+// Type for Chart.js datasets
+interface ChartDataset {
+  label: string
+  data: number[]
+  borderColor: string
+  backgroundColor: string
+  fill?: boolean
+  tension?: number
+  pointRadius?: number
+}
+
 const authStore = useAuthStore()
 const serversStore = useServersStore()
 const metricsStore = useMetricsStore()
@@ -244,8 +255,8 @@ const autoRefresh = ref(savedAutoRefresh === 'true')
 const selectedServer = ref(savedServer || '')
 const loading = ref(false)
 const countdown = ref(60)
-const toolLatencyTimeData = ref<{ labels: string[], datasets: any[] }>({ labels: [], datasets: [] })
-const toolCallsTimeData = ref<{ labels: string[], datasets: any[] }>({ labels: [], datasets: [] })
+const toolLatencyTimeData = ref<{ labels: string[], datasets: ChartDataset[] }>({ labels: [], datasets: [] })
+const toolCallsTimeData = ref<{ labels: string[], datasets: ChartDataset[] }>({ labels: [], datasets: [] })
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
@@ -308,7 +319,7 @@ const avgLatency = computed(() => {
   return data.reduce((sum, d) => sum + (d.avg_latency_ms || 0), 0) / data.length
 })
 
-const _avgLatencyFormatted = computed(() => formatLatency(avgLatency.value))
+// const _avgLatencyFormatted = computed(() => formatLatency(avgLatency.value))
 
 const requestRate = computed(() => {
   const total = totalRequests.value
@@ -316,7 +327,7 @@ const requestRate = computed(() => {
   return minutes > 0 ? total / minutes : 0
 })
 
-const _requestRateFormatted = computed(() => requestRate.value.toFixed(1))
+// const _requestRateFormatted = computed(() => requestRate.value.toFixed(1))
 
 // Computed values from summaryStats for toggle cards
 const summary = computed(() => metricsStore.summaryStats)

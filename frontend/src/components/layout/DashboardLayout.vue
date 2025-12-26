@@ -3,9 +3,14 @@
     <!-- Sidebar -->
     <aside class="w-64 border-r border-border p-4 flex flex-col">
       <!-- Logo -->
-      <div class="flex items-center gap-3 mb-8 px-2">
+      <div class="flex items-center gap-3 mb-4 px-2">
         <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-10 h-10 object-contain" />
         <span class="text-xl font-bold text-gradient">mcpx</span>
+      </div>
+
+      <!-- Org Switcher -->
+      <div class="mb-6 px-2">
+        <OrgSwitcher />
       </div>
 
       <!-- Navigation -->
@@ -64,7 +69,16 @@
             {{ authStore.user?.email?.[0]?.toUpperCase() || 'U' }}
           </div>
           <div class="flex-1 min-w-0">
-            <div class="text-sm font-medium truncate">{{ authStore.user?.name || 'User' }}</div>
+            <div class="flex items-center gap-2">
+              <div class="text-sm font-medium truncate">{{ authStore.user?.name || 'User' }}</div>
+              <!-- Provider Icon (Current Session) -->
+              <component 
+                v-if="authStore.authProvider"
+                :is="getProviderIcon(authStore.authProvider)"
+                class="w-3.5 h-3.5 text-gray-400"
+                :title="authStore.authProvider"
+              />
+            </div>
             <div class="text-xs text-gray-500 truncate">{{ authStore.user?.email }}</div>
           </div>
         </div>
@@ -88,6 +102,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import OrgSwitcher from '@/components/OrgSwitcher.vue'
 import { 
   Squares2X2Icon, 
   ServerIcon, 
@@ -96,6 +111,9 @@ import {
   BellIcon,
   ArrowRightOnRectangleIcon 
 } from '@heroicons/vue/24/outline'
+import GoogleIcon from '@/components/icons/GoogleIcon.vue'
+import GitHubIcon from '@/components/icons/GitHubIcon.vue'
+import MicrosoftIcon from '@/components/icons/MicrosoftIcon.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -103,5 +121,14 @@ const authStore = useAuthStore()
 function handleLogout() {
   authStore.logout()
   router.push('/login')
+}
+
+function getProviderIcon(provider: string) {
+  switch (provider) {
+    case 'google': return GoogleIcon
+    case 'github': return GitHubIcon
+    case 'microsoft': return MicrosoftIcon
+    default: return null
+  }
 }
 </script>

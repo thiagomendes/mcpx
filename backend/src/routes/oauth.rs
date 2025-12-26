@@ -13,7 +13,7 @@ use crate::services::crypto;
 use crate::messages::error;
 use crate::AppState;
 
-const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND user_id = $2";
+const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND org_id = $2";
 
 const SQL_UPSERT_OAUTH_TOKENS: &str = r#"
     INSERT INTO oauth_tokens (server_id, user_id, access_token_encrypted, refresh_token_encrypted, token_type, expires_at, scope)

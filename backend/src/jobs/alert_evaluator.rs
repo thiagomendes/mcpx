@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Alert Evaluation Job
 //! 
 //! This module is designed to be extracted to a separate service in production.
@@ -20,7 +21,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct AlertRuleEval {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub org_id: Uuid,
     pub name: String,
     pub alert_type: String,
     pub metric: String,
@@ -81,7 +82,7 @@ async fn get_enabled_rules(pool: &PgPool) -> Result<Vec<AlertRuleEval>, sqlx::Er
     let rules = sqlx::query_as::<_, AlertRuleEval>(
         r#"
         SELECT 
-            id, user_id, name, alert_type, metric, 
+            id, org_id, name, alert_type, metric, 
             scope_type, scope_id, operator, threshold, 
             duration_minutes, notify_dashboard
         FROM alert_rules 
@@ -233,6 +234,7 @@ async fn resolve_alerts_for_rule(pool: &PgPool, rule_id: Uuid) -> Result<(), sql
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
     
     #[test]
     fn test_eval_result_triggered() {

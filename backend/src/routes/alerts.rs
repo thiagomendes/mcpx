@@ -11,34 +11,21 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::routes::auth::{extract_token, validate_token, get_dev_user_id};
+use crate::routes::auth::extract_org_context;
 use crate::services::alerts::{
     self, AlertRule, ActiveAlert, CreateAlertRule, UpdateAlertRule,
     AlertHistoryQuery, AlertHistoryResponse,
 };
 use crate::messages::error;
 
-async fn get_user_id(
-    headers: &axum::http::HeaderMap,
-    state: &AppState,
-) -> Result<Uuid, (StatusCode, String)> {
-    if let Some(dev_user_id) = get_dev_user_id() {
-        return Ok(dev_user_id);
-    }
-    let token = extract_token(headers)?;
-    let claims = validate_token(&token, &state.config.jwt_secret)?;
-    Uuid::parse_str(&claims.sub)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))
-}
-
-/// GET /api/alerts - List user's alert rules
+/// GET /api/alerts - List org's alert rules
 pub async fn list_rules(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Vec<AlertRule>>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
-    let rules = alerts::list_rules(&state.db.pool, user_id)
+    let rules = alerts::list_rules(&state.db.pool, org_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
@@ -51,7 +38,7 @@ pub async fn create_rule(
     headers: axum::http::HeaderMap,
     Json(input): Json<CreateAlertRule>,
 ) -> Result<(StatusCode, Json<AlertRule>), (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     // Validate input
     if !["threshold", "spike", "no_data"].contains(&input.alert_type.as_str()) {
@@ -67,7 +54,7 @@ pub async fn create_rule(
         return Err((StatusCode::BAD_REQUEST, "Invalid operator".to_string()));
     }
 
-    let rule = alerts::create_rule(&state.db.pool, user_id, input)
+    let rule = alerts::create_rule(&state.db.pool, org_id, input)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
@@ -80,9 +67,9 @@ pub async fn get_rule(
     headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<AlertRule>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
-    let rule = alerts::get_rule(&state.db.pool, user_id, id)
+    let rule = alerts::get_rule(&state.db.pool, org_id, id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
@@ -99,7 +86,7 @@ pub async fn update_rule(
     Path(id): Path<Uuid>,
     Json(input): Json<UpdateAlertRule>,
 ) -> Result<Json<AlertRule>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     // Validate input if provided
     if let Some(ref alert_type) = input.alert_type {
@@ -113,7 +100,7 @@ pub async fn update_rule(
         }
     }
 
-    let rule = alerts::update_rule(&state.db.pool, user_id, id, input)
+    let rule = alerts::update_rule(&state.db.pool, org_id, id, input)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
@@ -129,9 +116,9 @@ pub async fn delete_rule(
     headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
-    let deleted = alerts::delete_rule(&state.db.pool, user_id, id)
+    let deleted = alerts::delete_rule(&state.db.pool, org_id, id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
@@ -147,9 +134,9 @@ pub async fn get_active_alerts(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Vec<ActiveAlert>>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
-    let alerts = alerts::get_active_alerts(&state.db.pool, user_id)
+    let alerts = alerts::get_active_alerts(&state.db.pool, org_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
@@ -162,9 +149,9 @@ pub async fn get_history(
     headers: axum::http::HeaderMap,
     Query(query): Query<AlertHistoryQuery>,
 ) -> Result<Json<AlertHistoryResponse>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
-    let history = alerts::list_history(&state.db.pool, user_id, query)
+    let history = alerts::list_history(&state.db.pool, org_id, query)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
@@ -177,9 +164,9 @@ pub async fn acknowledge_alert(
     headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
-    let acknowledged = alerts::acknowledge_alert(&state.db.pool, user_id, id)
+    let acknowledged = alerts::acknowledge_alert(&state.db.pool, org_id, id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 

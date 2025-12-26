@@ -65,5 +65,32 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { LinkIcon, ShieldCheckIcon, ChartBarIcon } from '@heroicons/vue/24/outline'
+
+const router = useRouter()
+const authStore = useAuthStore()
+
+onMounted(() => {
+  // Check for token in URL (from OAuth redirect)
+  const urlParams = new URLSearchParams(window.location.search)
+  const token = urlParams.get('token')
+  
+  if (token) {
+    authStore.setToken(token)
+    // Clean URL
+    window.history.replaceState({}, document.title, window.location.pathname)
+    
+    // Check for pending auth redirect (e.g. from invite link)
+    const redirect = localStorage.getItem('auth_redirect')
+    if (redirect) {
+      localStorage.removeItem('auth_redirect')
+      router.push(redirect)
+    } else {
+      router.push('/dashboard')
+    }
+  }
+})
 </script>

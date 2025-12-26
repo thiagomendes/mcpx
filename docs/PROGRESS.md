@@ -1,7 +1,7 @@
 # MCPX - Estado do Projeto
 
-**Última atualização:** 2025-12-24
-**Branch:** feature/mcp-auth-examples
+**Última atualização:** 2025-12-26
+**Branch:** feature/organizations-multi-auth
 
 ---
 
@@ -111,9 +111,9 @@
 
 - Backend: mensagens centralizadas, SQL constants
 - Frontend: ESLint configurado, constants centralizados
-- **42 testes passando** (21 backend + 21 frontend)
-- Clippy warnings: 13 (alerting features)
-- ESLint warnings: 2 (any types em charts)
+- **43 testes passando** (21 backend + 22 frontend)
+- Clippy warnings: 0
+- ESLint warnings: 0
 
 ---
 
@@ -210,15 +210,37 @@ Sistema de alertas com UI visual, background job, e painel de alertas ativos no 
 
 ---
 
+### Organizations & Multi-Provider Auth
+
+**Status:** ✅ **COMPLETO**
+
+Refactor completo para arquitetura multi-tenant baseada em Organizações.
+
+- **Multi-Tenant:** Recursos (servers, logs, metrics) isolados por `org_id`
+- **Auth Providers:** Google, GitHub, Microsoft Entra ID (com conta unificada por email)
+- **Member Roles:** Owner, Admin, Member
+- **Invite Flow:** Links de convite seguros e UI de aceitação explícita
+- **Org Management:** Criação, troca e remoção de organizações
+- **Spec:** [Authentication & Authorization](./authentication_spec.md) - Arquitetura de segurança (PATs, RBAC)
+
+---
+
 ## 📋 A FAZER (FUTURO)
 
-### Multi-provider Auth
-- [ ] Microsoft Entra ID login
-- [ ] GitHub login
+### Gateway Authentication (PATs & Service Accounts)
+**Spec:** [Authentication Specification](./authentication_spec.md)
 
-### API Key Protection
-- [ ] Proteger server com API key
-- [ ] Dashboard para gerar/revogar
+Implementar autenticação para consumo de servidores expostos.
+
+- [ ] **Personal Access Tokens (PATs)**
+    - [ ] Criar tabela `personal_access_tokens`
+    - [ ] Implementar API CRUD para PATs
+    - [ ] Validar PATs no MCP Proxy
+    - [ ] UI para gerar/revogar tokens
+- [ ] **Service Accounts (M2M)**
+    - [ ] Criar tabela `service_accounts`
+    - [ ] Implementar OAuth Client Credentials flow
+    - [ ] UI para gerenciar service accounts
 
 ### Auto-refresh OAuth tokens
 - [ ] Implementar `try_refresh_token`
@@ -228,6 +250,11 @@ Sistema de alertas com UI visual, background job, e painel de alertas ativos no 
 - [ ] Contador por janela de tempo
 - [ ] Middleware de limitação
 - [ ] (Considerar PostgreSQL em vez de Redis)
+
+### Test Coverage Improvement
+- [ ] Atingir 90% de cobertura
+- [ ] Configurar `cargo-tarpaulin` (Rust)
+- [ ] Configurar `@vitest/coverage-v8` (Frontend)
 
 ---
 
@@ -260,7 +287,7 @@ cd frontend && npm test
 | Backend | Rust + Axum |
 | Frontend | Vue 3 + TypeScript + Vite |
 | Database | TimescaleDB (PostgreSQL 15) |
-| Auth | Google OAuth 2.1 + JWT |
+| Auth | Google, GitHub, Microsoft OAuth 2.1 + JWT |
 | Containerização | Docker Compose |
 
 ---

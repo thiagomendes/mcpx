@@ -124,6 +124,7 @@ Ask Claude: *"What's the weather in San Francisco?"* — mcpx proxies the reques
 
 ### For Developers & Contributors
 - [Technical Specification](./docs/SPEC.md) - Complete product architecture
+- [Authentication & Authorization](./docs/authentication_spec.md) - Security architecture
 - [API Documentation](./docs/SPEC.md#rest-api-endpoints) - Programmatic access
 - [Implementation Roadmap](./docs/SPEC.md#implementation-roadmap) - Development plan
 

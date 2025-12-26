@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -6,7 +7,7 @@ use chrono::{DateTime, Utc};
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Server {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub org_id: Uuid,
     pub name: String,
     pub url: String,
     pub transport: String,
@@ -80,8 +81,8 @@ pub struct ServerResponse {
 }
 
 impl ServerResponse {
-    /// Create ServerResponse from Server - uses DB status directly (single source of truth)
-    pub fn from_server(server: Server, user_id: Uuid, base_url: &str) -> Self {
+    /// Create ServerResponse from Server - uses org_slug for proxy URL
+    pub fn from_server(server: Server, org_slug: &str, base_url: &str) -> Self {
         Self {
             id: server.id,
             name: server.name.clone(),
@@ -92,7 +93,7 @@ impl ServerResponse {
             status: server.status.unwrap_or_else(|| "pending_health".to_string()),
             last_health_check: server.last_health_check,
             health_error: server.health_error,
-            proxy_url: format!("{}/mcp/{}/{}", base_url, user_id, server.name),
+            proxy_url: format!("{}/mcp/{}/{}", base_url, org_slug, server.name),
             created_at: server.created_at,
             updated_at: server.updated_at,
         }

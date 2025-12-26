@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 #[allow(clippy::too_many_arguments)]
 pub async fn record_audit_log(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     target_type: &str,
     target_id: Uuid,
     target_name: &str,
@@ -30,7 +30,7 @@ pub async fn record_audit_log(
     sqlx::query(
         r#"
         INSERT INTO audit_logs (
-            id, time, user_id, target_type, target_id, target_name,
+            id, time, org_id, target_type, target_id, target_name,
             method, tool_name, request_body, response_body,
             status_code, error_message, latency_ms, success, session_id
         )
@@ -38,7 +38,7 @@ pub async fn record_audit_log(
         "#,
     )
     .bind(id)
-    .bind(user_id)
+    .bind(org_id)
     .bind(target_type)
     .bind(target_id)
     .bind(target_name)
@@ -115,10 +115,14 @@ pub struct AuditListResponse {
     pub offset: i32,
 }
 
+// Type aliases for complex SQL queries
+type AuditListDbRow = (Uuid, DateTime<Utc>, String, Uuid, String, Option<String>, Option<String>, Option<i32>, Option<i32>, bool, Option<String>);
+type AuditDetailDbRow = (Uuid, DateTime<Utc>, String, Uuid, String, Option<String>, Option<String>, Option<serde_json::Value>, Option<serde_json::Value>, Option<i32>, Option<String>, Option<i32>, bool, Option<String>);
+
 /// List audit logs with pagination and filters
 pub async fn list_audit_logs(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     query: AuditQuery,
 ) -> Result<AuditListResponse, sqlx::Error> {
     let hours = query.hours.unwrap_or(24.0);
@@ -127,7 +131,7 @@ pub async fn list_audit_logs(
     
     // Build WHERE clause
     let mut conditions = vec![
-        "user_id = $1".to_string(),
+        "org_id = $1".to_string(),
         format!("time >= NOW() - INTERVAL '{} hours'", hours),
     ];
     
@@ -152,7 +156,7 @@ pub async fn list_audit_logs(
         where_clause
     );
     let total: (i64,) = sqlx::query_as(&count_sql)
-        .bind(user_id)
+        .bind(org_id)
         .fetch_one(pool)
         .await?;
     
@@ -169,9 +173,9 @@ pub async fn list_audit_logs(
         where_clause, limit, offset
     );
     
-    let rows: Vec<(Uuid, DateTime<Utc>, String, Uuid, String, Option<String>, Option<String>, Option<i32>, Option<i32>, bool, Option<String>)> = 
+    let rows: Vec<AuditListDbRow> = 
         sqlx::query_as(&data_sql)
-            .bind(user_id)
+            .bind(org_id)
             .fetch_all(pool)
             .await?;
     
@@ -200,21 +204,21 @@ pub async fn list_audit_logs(
 /// Get audit log detail by ID
 pub async fn get_audit_log(
     pool: &PgPool,
-    user_id: Uuid,
+    org_id: Uuid,
     log_id: Uuid,
 ) -> Result<Option<AuditLogDetail>, sqlx::Error> {
-    let row: Option<(Uuid, DateTime<Utc>, String, Uuid, String, Option<String>, Option<String>, Option<serde_json::Value>, Option<serde_json::Value>, Option<i32>, Option<String>, Option<i32>, bool, Option<String>)> = 
+    let row: Option<AuditDetailDbRow> = 
         sqlx::query_as(
             r#"
             SELECT id, time, target_type, target_id, target_name,
                    method, tool_name, request_body, response_body,
                    status_code, error_message, latency_ms, success, session_id
             FROM audit_logs
-            WHERE id = $1 AND user_id = $2
+            WHERE id = $1 AND org_id = $2
             "#,
         )
         .bind(log_id)
-        .bind(user_id)
+        .bind(org_id)
         .fetch_optional(pool)
         .await?;
     

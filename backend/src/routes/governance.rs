@@ -8,10 +8,10 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::routes::auth::{extract_token, validate_token};
+use crate::routes::auth::extract_org_context;
 use crate::messages::error;
 
-const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND user_id = $2";
+const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND org_id = $2";
 const SQL_DELETE_GOVERNANCE: &str = "DELETE FROM governance_configs WHERE server_id = $1";
 const SQL_SELECT_GOVERNANCE: &str = "SELECT * FROM governance_configs WHERE server_id = $1";
 const SQL_UPSERT_GOVERNANCE: &str = r#"
@@ -56,24 +56,16 @@ pub struct CreateGovernanceRequest {
     pub tool_prefix: String,
 }
 
-async fn get_user_id(
-    headers: &axum::http::HeaderMap,
-    state: &AppState,
-) -> Result<Uuid, (StatusCode, String)> {
-    let token = extract_token(headers)?;
-    let claims = validate_token(&token, &state.config.jwt_secret)?;
-    Uuid::parse_str(&claims.sub)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))
-}
+
 
 async fn get_server_id(
     state: &AppState,
-    user_id: Uuid,
+    org_id: Uuid,
     server_name: &str,
 ) -> Result<Uuid, (StatusCode, String)> {
     let row: Option<(Uuid,)> = sqlx::query_as(SQL_SELECT_SERVER_ID)
         .bind(server_name)
-        .bind(user_id)
+        .bind(org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -93,8 +85,8 @@ pub async fn get_governance(
     headers: axum::http::HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<GovernanceResponse>, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
-    let server_id = get_server_id(&state, user_id, &name).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let server_id = get_server_id(&state, org_id, &name).await?;
 
     let config: Option<GovernanceConfig> = sqlx::query_as(SQL_SELECT_GOVERNANCE)
     .bind(server_id)
@@ -128,8 +120,8 @@ pub async fn set_governance(
     Path(name): Path<String>,
     Json(payload): Json<CreateGovernanceRequest>,
 ) -> Result<(StatusCode, Json<GovernanceResponse>), (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
-    let server_id = get_server_id(&state, user_id, &name).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let server_id = get_server_id(&state, org_id, &name).await?;
 
     if !payload.allowed_tools.is_empty() && !payload.denied_tools.is_empty() {
         return Err((StatusCode::BAD_REQUEST, error::MUTUALLY_EXCLUSIVE.to_string()));
@@ -169,8 +161,8 @@ pub async fn delete_governance(
     headers: axum::http::HeaderMap,
     Path(name): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let user_id = get_user_id(&headers, &state).await?;
-    let server_id = get_server_id(&state, user_id, &name).await?;
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let server_id = get_server_id(&state, org_id, &name).await?;
 
     sqlx::query(SQL_DELETE_GOVERNANCE)
         .bind(server_id)

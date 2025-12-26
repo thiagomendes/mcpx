@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -12,17 +13,20 @@ use crate::AppState;
 use crate::services::crypto;
 use crate::services::mcp_client;
 use crate::messages::error;
+use crate::services::metrics::RequestMetric;
 
 
-const SQL_SELECT_SERVER: &str = "SELECT id, user_id, name, url, transport, auth_type, status, oauth_client_id, oauth_token_url FROM servers WHERE name = $1 AND user_id = $2";
+// SQL queries now use org_id/org_slug instead of user_id
+const SQL_SELECT_ORG_BY_SLUG: &str = "SELECT id FROM organizations WHERE slug = $1";
+const SQL_SELECT_SERVER: &str = "SELECT id, org_id, name, url, transport, auth_type, status, oauth_client_id, oauth_token_url FROM servers WHERE name = $1 AND org_id = $2";
 const SQL_SELECT_GOVERNANCE: &str = "SELECT allowed_tools, denied_tools, tool_prefix FROM governance_configs WHERE server_id = $1";
 
 const SQL_SELECT_GATEWAY: &str = r#"
-    SELECT g.id, g.name, g.slug FROM gateways g WHERE g.slug = $1 AND g.user_id = $2 AND g.enabled = true
+    SELECT g.id, g.name, g.slug FROM gateways g WHERE g.slug = $1 AND g.org_id = $2 AND g.enabled = true
 "#;
 
 const SQL_SELECT_GATEWAY_SERVERS: &str = r#"
-    SELECT s.id, s.user_id, s.name, s.url, s.transport, s.auth_type, s.status, s.oauth_client_id, s.oauth_token_url
+    SELECT s.id, s.org_id, s.name, s.url, s.transport, s.auth_type, s.status, s.oauth_client_id, s.oauth_token_url
     FROM gateway_servers gs
     JOIN servers s ON s.id = gs.server_id
     WHERE gs.gateway_id = $1
@@ -30,30 +34,39 @@ const SQL_SELECT_GATEWAY_SERVERS: &str = r#"
 "#;
 
 const SQL_UPSERT_GATEWAY_SESSION: &str = r#"
-    INSERT INTO gateway_sessions (id, gateway_id, user_id, server_sessions, expires_at)
+    INSERT INTO gateway_sessions (id, gateway_id, org_id, server_sessions, expires_at)
     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '1 hour')
     ON CONFLICT (id) DO UPDATE SET server_sessions = $4, expires_at = NOW() + INTERVAL '1 hour'
 "#;
 
 const SQL_SELECT_GATEWAY_SESSION: &str = "SELECT server_sessions FROM gateway_sessions WHERE id = $1";
 
+/// MCP Proxy entry point - now uses org_slug instead of user_id in URL
+/// URL format: /mcp/{org_slug}/{server_or_gateway_name}
 pub async fn mcp_proxy(
     State(state): State<Arc<AppState>>,
-    Path((user_id, server_name)): Path<(String, String)>,
+    Path((org_slug, server_name)): Path<(String, String)>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, (StatusCode, String)> {
-    tracing::info!("MCP Proxy request: user={}, target={}", user_id, server_name);
+    tracing::info!("MCP Proxy request: org={}, target={}", org_slug, server_name);
     
-    let user_uuid = Uuid::parse_str(&user_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, error::INVALID_USER_ID.to_string()))?;
+    // Look up org by slug
+    let org_id: Uuid = sqlx::query_scalar(SQL_SELECT_ORG_BY_SLUG)
+        .bind(&org_slug)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+        .ok_or((StatusCode::NOT_FOUND, format!("Organization '{}' not found", org_slug)))?;
     
-    if let Ok(server) = get_server_by_name(&state, &server_name, user_uuid).await {
+    tracing::info!("Resolved org_id for slug '{}': {}", org_slug, org_id);
+    
+    if let Ok(server) = get_server_by_name(&state, &server_name, org_id).await {
         return handle_server_proxy(&state, server, headers, body).await;
     }
     
-    if let Ok(gateway) = get_gateway_by_slug(&state, &server_name, user_uuid).await {
-        return handle_gateway_proxy(&state, gateway, user_uuid, headers, body).await;
+    if let Ok(gateway) = get_gateway_by_slug(&state, &server_name, org_id).await {
+        return handle_gateway_proxy(&state, gateway, org_id, headers, body).await;
     }
     
     Err((StatusCode::NOT_FOUND, format!("{}: no server or gateway found with name '{}'", error::SERVER_NOT_FOUND, server_name)))
@@ -143,7 +156,7 @@ async fn handle_server_proxy(
                 .map(|e| !e.is_null())
                 .unwrap_or(false);
             
-            let actual_success = status_code >= 200 && status_code < 300 && !has_jsonrpc_error;
+            let actual_success = (200..300).contains(&status_code) && !has_jsonrpc_error;
             
             // Extract error message if present
             let error_message = if has_jsonrpc_error {
@@ -158,9 +171,9 @@ async fn handle_server_proxy(
             };
             
             // Record audit log with full request/response
-            let _ = crate::services::audit::record_audit_log(
+            if let Err(e) = crate::services::audit::record_audit_log(
                 &state.db.pool,
-                server.user_id,
+                server.org_id,
                 "server",
                 server.id,
                 &server.name,
@@ -173,20 +186,26 @@ async fn handle_server_proxy(
                 latency_ms,
                 actual_success,
                 None,
-            ).await;
+            ).await {
+                tracing::error!("Failed to record audit log: {}", e);
+            }
             
             // Record metrics with correct success status (detects JSON-RPC errors)
-            let _ = crate::services::metrics::record_request(
+            if let Err(e) = crate::services::metrics::record_request(
                 &state.db.pool,
-                server.user_id,
-                "server",
-                server.id,
-                &server.name,
-                Some(method),
-                tool_name.as_deref(),
-                latency_ms,
-                actual_success,
-            ).await;
+                RequestMetric {
+                    org_id: server.org_id,
+                    target_type: "server",
+                    target_id: server.id,
+                    target_name: &server.name,
+                    method: Some(method),
+                    tool_name: tool_name.as_deref(),
+                    latency_ms,
+                    success: actual_success,
+                }
+            ).await {
+                tracing::error!("Failed to record metrics: {}", e);
+            }
             
             // Reconstruct response with the same body
             let response = Response::from_parts(parts, Body::from(body_bytes));
@@ -199,9 +218,9 @@ async fn handle_server_proxy(
         }
         Err(msg) => {
             // Record audit log for error case
-            let _ = crate::services::audit::record_audit_log(
+            if let Err(e) = crate::services::audit::record_audit_log(
                 &state.db.pool,
-                server.user_id,
+                server.org_id,
                 "server",
                 server.id,
                 &server.name,
@@ -214,20 +233,26 @@ async fn handle_server_proxy(
                 latency_ms,
                 false,
                 None,
-            ).await;
+            ).await {
+                tracing::error!("Failed to record audit log: {}", e);
+            }
             
             // Record metrics for error case
-            let _ = crate::services::metrics::record_request(
+            if let Err(e) = crate::services::metrics::record_request(
                 &state.db.pool,
-                server.user_id,
-                "server",
-                server.id,
-                &server.name,
-                Some(method),
-                tool_name.as_deref(),
-                latency_ms,
-                false,
-            ).await;
+                RequestMetric {
+                    org_id: server.org_id,
+                    target_type: "server",
+                    target_id: server.id,
+                    target_name: &server.name,
+                    method: Some(method),
+                    tool_name: tool_name.as_deref(),
+                    latency_ms,
+                    success: false,
+                }
+            ).await {
+                tracing::error!("Failed to record metrics: {}", e);
+            }
             
             Err((StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, msg)))
         }
@@ -241,10 +266,10 @@ struct GatewayRow {
     slug: String,
 }
 
-async fn get_gateway_by_slug(state: &AppState, slug: &str, user_id: Uuid) -> Result<GatewayRow, String> {
+async fn get_gateway_by_slug(state: &AppState, slug: &str, org_id: Uuid) -> Result<GatewayRow, String> {
     sqlx::query_as::<_, GatewayRow>(SQL_SELECT_GATEWAY)
         .bind(slug)
-        .bind(user_id)
+        .bind(org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| format!("Database error: {}", e))?
@@ -262,7 +287,7 @@ async fn get_gateway_servers(state: &AppState, gateway_id: Uuid) -> Result<Vec<S
 async fn handle_gateway_proxy(
     state: &AppState,
     gateway: GatewayRow,
-    user_id: Uuid,
+    org_id: Uuid,
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, (StatusCode, String)> {
@@ -298,7 +323,7 @@ async fn handle_gateway_proxy(
     };
     
     let result = match method {
-        "initialize" => handle_gateway_initialize(state, &gateway, user_id, &servers, headers.clone(), body_bytes.to_vec()).await,
+        "initialize" => handle_gateway_initialize(state, &gateway, org_id, &servers, headers.clone(), body_bytes.to_vec()).await,
         "tools/list" => handle_gateway_tools_list(state, &gateway, &servers, headers.clone(), &request, body_bytes.to_vec()).await,
         "tools/call" => handle_gateway_tools_call(state, &gateway, &servers, headers.clone(), &request, body_bytes.to_vec()).await,
         _ => {
@@ -354,14 +379,15 @@ async fn handle_gateway_proxy(
                 .or_else(|| {
                     // Try to parse as SSE - extract JSON from "data: {...}" lines
                     let body_str = std::str::from_utf8(&body_bytes).ok()?;
+                    let mut lines = Vec::new();
                     for line in body_str.lines() {
                         if let Some(json_str) = line.strip_prefix("data: ") {
-                            if let Ok(json) = serde_json::from_str(json_str) {
-                                return Some(json);
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                lines.push(json);
                             }
                         }
                     }
-                    None
+                    if lines.is_empty() { None } else { Some(serde_json::Value::Array(lines)) }
                 });
             
             // Check if JSON-RPC response contains an error
@@ -371,7 +397,7 @@ async fn handle_gateway_proxy(
                 .map(|e| !e.is_null())
                 .unwrap_or(false);
             
-            let actual_success = status_code >= 200 && status_code < 300 && !has_jsonrpc_error;
+            let actual_success = (200..300).contains(&status_code) && !has_jsonrpc_error;
             
             // Extract error message if present
             let error_message = if has_jsonrpc_error {
@@ -386,9 +412,9 @@ async fn handle_gateway_proxy(
             };
             
             // Record audit log with full request/response
-            let _ = crate::services::audit::record_audit_log(
+            if let Err(e) = crate::services::audit::record_audit_log(
                 &state.db.pool,
-                user_id,
+                org_id,
                 "gateway",
                 gateway.id,
                 &gateway.name,
@@ -401,29 +427,35 @@ async fn handle_gateway_proxy(
                 latency_ms,
                 actual_success,
                 None,
-            ).await;
+            ).await {
+                tracing::error!("Failed to record audit log: {}", e);
+            }
             
             // Record metrics with correct success status (detects JSON-RPC errors)
-            let _ = crate::services::metrics::record_request(
+            if let Err(e) = crate::services::metrics::record_request(
                 &state.db.pool,
-                user_id,
-                "gateway",
-                gateway.id,
-                &gateway.name,
-                Some(method),
-                tool_name.as_deref(),
-                latency_ms,
-                actual_success,
-            ).await;
+                RequestMetric {
+                    org_id,
+                    target_type: "gateway",
+                    target_id: gateway.id,
+                    target_name: &gateway.name,
+                    method: Some(method),
+                    tool_name: tool_name.as_deref(),
+                    latency_ms,
+                    success: actual_success,
+                }
+            ).await {
+                tracing::error!("Failed to record metrics: {}", e);
+            }
             
             // Reconstruct response with the same body
             Ok(Response::from_parts(parts, Body::from(body_bytes)))
         }
         Err((status, msg)) => {
             // Record audit log for error case
-            let _ = crate::services::audit::record_audit_log(
+            if let Err(e) = crate::services::audit::record_audit_log(
                 &state.db.pool,
-                user_id,
+                org_id,
                 "gateway",
                 gateway.id,
                 &gateway.name,
@@ -436,20 +468,26 @@ async fn handle_gateway_proxy(
                 latency_ms,
                 false,
                 None,
-            ).await;
+            ).await {
+                tracing::error!("Failed to record audit log: {}", e);
+            }
             
             // Record metrics for error case
-            let _ = crate::services::metrics::record_request(
+            if let Err(e) = crate::services::metrics::record_request(
                 &state.db.pool,
-                user_id,
-                "gateway",
-                gateway.id,
-                &gateway.name,
-                Some(method),
-                tool_name.as_deref(),
-                latency_ms,
-                false,
-            ).await;
+                RequestMetric {
+                    org_id,
+                    target_type: "gateway",
+                    target_id: gateway.id,
+                    target_name: &gateway.name,
+                    method: Some(method),
+                    tool_name: tool_name.as_deref(),
+                    latency_ms,
+                    success: false,
+                }
+            ).await {
+                tracing::error!("Failed to record metrics: {}", e);
+            }
             
             Err((status, msg))
         }
@@ -459,7 +497,7 @@ async fn handle_gateway_proxy(
 async fn handle_gateway_initialize(
     state: &AppState,
     gateway: &GatewayRow,
-    user_id: Uuid,
+    org_id: Uuid,
     servers: &[ServerRow],
     headers: HeaderMap,
     body: Vec<u8>,
@@ -491,7 +529,7 @@ async fn handle_gateway_initialize(
     sqlx::query(SQL_UPSERT_GATEWAY_SESSION)
         .bind(&gateway_session_id)
         .bind(gateway.id)
-        .bind(user_id)
+        .bind(org_id)
         .bind(&sessions_json)
         .execute(&state.db.pool)
         .await
@@ -656,7 +694,27 @@ async fn handle_gateway_tools_call(
         
         tracing::debug!("Auth headers count: {}", auth_headers.len());
         
-        return forward_request(&server.url, headers, auth_headers, modified_body).await
+        // Translate gateway session ID to server session ID
+        let mut modified_headers = headers.clone();
+        if let Some(gw_session) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok()) {
+            if gw_session.starts_with("gw_") {
+                // Look up server session from gateway session
+                if let Ok(Some(server_sessions)) = sqlx::query_scalar::<_, serde_json::Value>(SQL_SELECT_GATEWAY_SESSION)
+                    .bind(gw_session)
+                    .fetch_optional(&state.db.pool)
+                    .await
+                {
+                    if let Some(server_session) = server_sessions.get(&server.name).and_then(|v| v.as_str()) {
+                        if let Ok(header_value) = server_session.parse() {
+                            modified_headers.insert("mcp-session-id", header_value);
+                            tracing::debug!("Translated gateway session to server session for '{}'", server.name);
+                        }
+                    }
+                }
+            }
+        }
+        
+        return forward_request(&server.url, modified_headers, auth_headers, modified_body).await
             .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)));
     }
     
@@ -712,7 +770,7 @@ impl GovernanceConfig {
 #[derive(sqlx::FromRow)]
 struct ServerRow {
     id: Uuid,
-    user_id: Uuid,
+    org_id: Uuid,
     name: String,
     url: String,
     transport: String,
@@ -753,10 +811,10 @@ struct McpTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     annotations: Option<serde_json::Value>,
 }
-async fn get_server_by_name(state: &AppState, name: &str, user_id: Uuid) -> Result<ServerRow, String> {
+async fn get_server_by_name(state: &AppState, name: &str, org_id: Uuid) -> Result<ServerRow, String> {
     sqlx::query_as::<_, ServerRow>(SQL_SELECT_SERVER)
     .bind(name)
-    .bind(user_id)
+    .bind(org_id)
     .fetch_optional(&state.db.pool)
     .await
     .map_err(|e| format!("{}: {}", error::DATABASE_ERROR, e))?
@@ -894,6 +952,7 @@ async fn filter_tools_response(response: Response, governance: &GovernanceConfig
 fn filter_sse_response(body: &str, governance: &GovernanceConfig) -> String {
     let mut result = String::new();
     let mut current_event = String::new();
+    #[allow(unused_assignments)]
     let mut current_data = String::new();
     
     for line in body.lines() {
@@ -1038,11 +1097,14 @@ async fn get_credential(state: &AppState, server_id: Uuid, cred_type: &str) -> R
 }
 
 async fn get_oauth_token(state: &AppState, server: &ServerRow) -> Result<Option<String>, String> {
+    // Note: For proxy endpoints, we don't have user context.
+    // OAuth tokens are stored per-user, but for org-owned servers accessed via proxy,
+    // we use the first available token for this server.
+    // TODO: Consider API key auth for proxy endpoints or passing user context via headers.
     let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
-        "SELECT access_token_encrypted, expires_at FROM oauth_tokens WHERE server_id = $1 AND user_id = $2"
+        "SELECT access_token_encrypted, expires_at FROM oauth_tokens WHERE server_id = $1 LIMIT 1"
     )
     .bind(server.id)
-    .bind(server.user_id)
     .fetch_optional(&state.db.pool)
     .await
     .map_err(|e| format!("Failed to fetch OAuth token: {}", e))?;
@@ -1125,16 +1187,16 @@ async fn get_server_auth_headers(state: &AppState, server: &ServerRow) -> (Optio
                 None
             };
             
-            if client_id.is_empty() || client_secret.is_none() || token_url.is_empty() {
+            if client_id.is_empty() || token_url.is_empty() {
                 (None, None)
-            } else {
+            } else if let Some(secret) = client_secret {
                 // Fetch token from token endpoint
                 let client = reqwest::Client::new();
                 let token_response = client.post(&token_url)
                     .json(&serde_json::json!({
                         "grant_type": "client_credentials",
                         "client_id": client_id,
-                        "client_secret": client_secret.unwrap()
+                        "client_secret": secret
                     }))
                     .send()
                     .await;
@@ -1153,6 +1215,8 @@ async fn get_server_auth_headers(state: &AppState, server: &ServerRow) -> (Optio
                     }
                     _ => (None, None)
                 }
+            } else {
+                (None, None)
             }
         }
         Some("oauth_auto") => {
