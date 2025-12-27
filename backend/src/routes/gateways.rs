@@ -382,11 +382,17 @@ pub struct GatewayToolResponse {
 }
 
 const SQL_GET_GATEWAY_SERVERS: &str = r#"
-    SELECT s.id, s.name, s.url, s.auth_type, s.auth_config
+    SELECT s.id, s.name, s.url, s.auth_type
     FROM gateway_servers gs
     JOIN servers s ON s.id = gs.server_id
     WHERE gs.gateway_id = $1
     ORDER BY gs.priority
+"#;
+
+const SQL_SELECT_CREDENTIAL: &str = r#"
+    SELECT sc.encrypted_value
+    FROM server_credentials sc
+    WHERE sc.server_id = $1 AND sc.credential_type = $2
 "#;
 
 #[derive(Debug, sqlx::FromRow)]
@@ -395,7 +401,6 @@ struct ServerRowForTools {
     name: String,
     url: String,
     auth_type: Option<String>,
-    auth_config: Option<serde_json::Value>,
 }
 
 /// GET /api/gateways/:slug/tools - List tools from all servers in gateway (JWT auth)
@@ -457,50 +462,48 @@ pub async fn list_gateway_tools(
     Ok(Json(all_tools))
 }
 
-/// Get auth headers for a server (similar to proxy logic)
+/// Get auth headers for a server (uses same pattern as proxy.rs)
 async fn get_server_auth_header(state: &AppState, server: &ServerRowForTools) -> (Option<String>, Option<String>) {
+    use crate::services::crypto;
+    
     match server.auth_type.as_deref() {
         Some("api_key") => {
-            if let Some(config) = &server.auth_config {
-                let header_name = config.get("header_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("X-API-Key")
-                    .to_string();
-                
-                // Get credential from database
-                if let Some(cred_id) = config.get("credential_id").and_then(|v| v.as_str()) {
-                    if let Ok(cred_uuid) = cred_id.parse::<Uuid>() {
-                        if let Ok(Some(value)) = sqlx::query_scalar::<_, String>(
-                            "SELECT value FROM server_credentials WHERE id = $1"
-                        )
-                            .bind(cred_uuid)
-                            .fetch_optional(&state.db.pool)
-                            .await
-                        {
-                            return (Some(header_name), Some(value));
-                        }
-                    }
+            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
+                .bind(server.id)
+                .bind("api_key")
+                .fetch_optional(&state.db.pool)
+                .await
+                .ok()
+                .flatten();
+            
+            if let Some((encrypted,)) = row {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                match crypto::decrypt(&encrypted, &key) {
+                    Ok(api_key) => (Some("X-API-Key".to_string()), Some(api_key)),
+                    Err(_) => (None, None)
                 }
+            } else {
+                (None, None)
             }
-            (None, None)
         }
         Some("bearer") => {
-            if let Some(config) = &server.auth_config {
-                if let Some(cred_id) = config.get("credential_id").and_then(|v| v.as_str()) {
-                    if let Ok(cred_uuid) = cred_id.parse::<Uuid>() {
-                        if let Ok(Some(value)) = sqlx::query_scalar::<_, String>(
-                            "SELECT value FROM server_credentials WHERE id = $1"
-                        )
-                            .bind(cred_uuid)
-                            .fetch_optional(&state.db.pool)
-                            .await
-                        {
-                            return (Some("Authorization".to_string()), Some(format!("Bearer {}", value)));
-                        }
-                    }
+            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
+                .bind(server.id)
+                .bind("bearer")
+                .fetch_optional(&state.db.pool)
+                .await
+                .ok()
+                .flatten();
+            
+            if let Some((encrypted,)) = row {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                match crypto::decrypt(&encrypted, &key) {
+                    Ok(token) => (Some("Authorization".to_string()), Some(format!("Bearer {}", token))),
+                    Err(_) => (None, None)
                 }
+            } else {
+                (None, None)
             }
-            (None, None)
         }
         _ => (None, None)
     }
