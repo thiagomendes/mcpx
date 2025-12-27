@@ -20,6 +20,11 @@ const router = createRouter({
             component: () => import('@/views/SignIn.vue'),
         },
         {
+            path: '/account-deleted',
+            name: 'account-deleted',
+            component: () => import('@/views/AccountDeleted.vue'),
+        },
+        {
             path: '/dashboard',
             name: 'dashboard',
             component: () => import('@/views/dashboard/Dashboard.vue'),

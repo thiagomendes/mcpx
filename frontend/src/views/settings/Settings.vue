@@ -97,7 +97,7 @@
         </div>
       </div>
 
-      <!-- Danger Zone Section -->
+      <!-- Danger Zone Section - Team Orgs -->
       <div v-if="!currentOrg?.is_personal && isOwner" class="mb-8">
         <h2 class="text-sm font-semibold text-red-400/70 uppercase tracking-wider mb-4">Danger Zone</h2>
         <div class="card border-red-500/20 bg-red-500/5">
@@ -116,6 +116,30 @@
               class="px-4 py-2 text-sm font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors border border-red-500/20"
             >
               Delete
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Danger Zone Section - Personal Account -->
+      <div v-if="currentOrg?.is_personal" class="mb-8">
+        <h2 class="text-sm font-semibold text-red-400/70 uppercase tracking-wider mb-4">Danger Zone</h2>
+        <div class="card border-red-500/20 bg-red-500/5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
+              <div class="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
+                <ExclamationTriangleIcon class="w-5 h-5 text-red-400" />
+              </div>
+              <div>
+                <h3 class="font-medium text-red-400">Delete Account</h3>
+                <p class="text-sm text-gray-400">Permanently delete your account and all personal data</p>
+              </div>
+            </div>
+            <button 
+              @click="openDeleteAccountModal"
+              class="px-4 py-2 text-sm font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors border border-red-500/20"
+            >
+              Delete Account
             </button>
           </div>
         </div>
@@ -168,6 +192,85 @@
         </div>
       </div>
     </div>
+
+    <!-- Delete Account Modal -->
+    <div 
+      v-if="showDeleteAccountModal" 
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      @click.self="showDeleteAccountModal = false"
+    >
+      <div class="card w-full max-w-md border-red-500/20">
+        <h2 class="text-lg font-semibold mb-2 text-red-400">Delete Your Account?</h2>
+        
+        <!-- Loading state -->
+        <div v-if="previewLoading" class="text-gray-400 text-sm py-4 text-center">
+          Loading...
+        </div>
+        
+        <!-- Orgs to delete warning -->
+        <div v-else>
+          <p class="text-gray-400 text-sm mb-4">
+            This action <span class="font-bold text-red-400">cannot be undone</span>. The following will be permanently deleted:
+          </p>
+          
+          <ul class="text-sm text-gray-400 mb-4 list-disc list-inside space-y-1">
+            <li>Your account and profile</li>
+            <li>Your membership in all organizations</li>
+          </ul>
+
+          <!-- Orgs that will be deleted -->
+          <div v-if="deletionPreview?.orgs_to_delete?.length" class="mb-4">
+            <p class="text-sm font-medium text-red-400 mb-2">
+              Organizations you own (will be deleted):
+            </p>
+            <div class="space-y-2">
+              <div 
+                v-for="org in deletionPreview.orgs_to_delete" 
+                :key="org.id"
+                class="flex items-center gap-2 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2"
+              >
+                <TrashIcon class="w-4 h-4 text-red-400 shrink-0" />
+                <span class="text-white">{{ org.name }}</span>
+                <span v-if="org.is_personal" class="text-xs text-gray-500">(Personal)</span>
+              </div>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">
+              All servers, gateways, and tokens in these organizations will be deleted.
+            </p>
+          </div>
+        </div>
+        
+        <div class="mb-6">
+          <label class="block text-xs font-medium text-gray-500 mb-1 uppercase">
+            Type <span class="text-white select-none">DELETE</span> to confirm
+          </label>
+          <input 
+            v-model="deleteAccountConfirmation"
+            type="text" 
+            class="input w-full border-red-500/20 focus:border-red-500"
+            placeholder="DELETE"
+          />
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button 
+            @click="showDeleteAccountModal = false"
+            class="btn btn-secondary flex-1"
+            :disabled="deleteAccountLoading"
+          >
+            Cancel
+          </button>
+          <button 
+            @click="handleDeleteAccount"
+            class="btn bg-red-600 hover:bg-red-700 text-white border-none flex-1"
+            :disabled="deleteAccountLoading || deleteAccountConfirmation !== 'DELETE'"
+          >
+            <span v-if="deleteAccountLoading">Deleting...</span>
+            <span v-else>Delete My Account</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </DashboardLayout>
 </template>
 
@@ -176,7 +279,7 @@ import { ref, computed } from 'vue'
 // import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
-import { UsersIcon, ChevronRightIcon, TrashIcon, KeyIcon } from '@heroicons/vue/24/outline'
+import { UsersIcon, ChevronRightIcon, TrashIcon, KeyIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import GoogleIcon from '@/components/icons/GoogleIcon.vue'
 import GitHubIcon from '@/components/icons/GitHubIcon.vue'
 import MicrosoftIcon from '@/components/icons/MicrosoftIcon.vue'
@@ -185,14 +288,46 @@ import api from '@/api/client'
 // const router = useRouter()
 const authStore = useAuthStore()
 
+// Types
+interface OrgToDelete {
+  id: string
+  name: string
+  is_personal: boolean
+}
+
+interface DeletionPreview {
+  user_email: string
+  orgs_to_delete: OrgToDelete[]
+}
+
 // State
 const showDeleteModal = ref(false)
 const deleteConfirmation = ref('')
 const deleteLoading = ref(false)
 
+const showDeleteAccountModal = ref(false)
+const deleteAccountConfirmation = ref('')
+const deleteAccountLoading = ref(false)
+const deletionPreview = ref<DeletionPreview | null>(null)
+const previewLoading = ref(false)
+
 const currentOrg = computed(() => authStore.currentOrg)
 const identities = computed(() => authStore.identities)
 const isOwner = computed(() => currentOrg.value?.role === 'owner')
+
+// Fetch preview when opening delete account modal
+async function openDeleteAccountModal() {
+  showDeleteAccountModal.value = true
+  previewLoading.value = true
+  try {
+    const response = await api.get('/account/deletion-preview')
+    deletionPreview.value = response.data
+  } catch (error) {
+    console.error('Failed to fetch deletion preview:', error)
+  } finally {
+    previewLoading.value = false
+  }
+}
 
 async function handleDeleteOrg() {
   if (!currentOrg.value || deleteConfirmation.value !== currentOrg.value.name) return
@@ -210,6 +345,23 @@ async function handleDeleteOrg() {
     console.error('Failed to delete org:', error)
     alert('Failed to delete organization. Please try again.')
     deleteLoading.value = false
+  }
+}
+
+async function handleDeleteAccount() {
+  if (deleteAccountConfirmation.value !== 'DELETE') return
+
+  deleteAccountLoading.value = true
+  try {
+    await api.delete('/account')
+    
+    // Clear auth state and redirect to account-deleted page
+    authStore.logout()
+    window.location.href = '/account-deleted'
+  } catch (error) {
+    console.error('Failed to delete account:', error)
+    alert('Failed to delete account. Please try again.')
+    deleteAccountLoading.value = false
   }
 }
 

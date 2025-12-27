@@ -197,6 +197,10 @@ async fn main() {
         .route("/api/orgs/members/invite", post(routes::orgs::invite_member))
         .route("/api/orgs/join/:token", get(routes::orgs::get_invite_details).post(routes::orgs::join_org))
     
+        // Account management
+        .route("/api/account", delete(routes::orgs::delete_account))
+        .route("/api/account/deletion-preview", get(routes::orgs::preview_account_deletion))
+    
         // Personal Access Tokens
         .route("/api/tokens", get(routes::pat::list_tokens))
         .route("/api/tokens", post(routes::pat::create_token))

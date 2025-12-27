@@ -407,6 +407,96 @@ impl OrgService {
             .await?;
         Ok(result.rows_affected() > 0)
     }
+
+    /// Delete a user account completely
+    /// - Deletes orgs where user is the ONLY owner
+    /// - Removes user from all other org memberships
+    /// - Deletes user's personal org (with CASCADE to all resources)
+    /// - Deletes user identities
+    /// - Deletes the user
+    pub async fn delete_user_account(pool: &PgPool, user_id: Uuid) -> Result<(), sqlx::Error> {
+        // Start transaction
+        let mut tx = pool.begin().await?;
+
+        // 1. Find all orgs where this user is the ONLY owner (these will be deleted)
+        let owned_orgs: Vec<Organization> = sqlx::query_as(
+            r#"
+            SELECT o.* FROM organizations o
+            JOIN org_members om ON o.id = om.org_id
+            WHERE om.user_id = $1 AND om.role = 'owner'
+            AND (SELECT COUNT(*) FROM org_members WHERE org_id = o.id AND role = 'owner') = 1
+            "#
+        )
+            .bind(user_id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+        // 2. Delete these orgs (CASCADE will handle resources)
+        for org in &owned_orgs {
+            tracing::info!(org_id = %org.id, org_name = %org.name, "Deleting org owned by deleted user");
+            sqlx::query("DELETE FROM organizations WHERE id = $1")
+                .bind(org.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        // 3. Delete user from remaining org memberships
+        sqlx::query("DELETE FROM org_members WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // 4. Delete user identities
+        sqlx::query("DELETE FROM user_identities WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // 5. Delete the user
+        sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+
+        tracing::info!(user_id = %user_id, deleted_orgs = owned_orgs.len(), "User account deleted");
+        Ok(())
+    }
+
+    /// Preview what will be deleted when deleting a user account
+    pub async fn preview_account_deletion(pool: &PgPool, user_id: Uuid) -> Result<Vec<OrgResponse>, sqlx::Error> {
+        // Find all orgs where this user is the ONLY owner (these will be deleted)
+        #[derive(sqlx::FromRow)]
+        struct OrgWithRole {
+            id: Uuid,
+            name: String,
+            slug: String,
+            is_personal: bool,
+            created_at: chrono::DateTime<chrono::Utc>,
+        }
+
+        let owned_orgs: Vec<OrgWithRole> = sqlx::query_as(
+            r#"
+            SELECT o.id, o.name, o.slug, o.is_personal, o.created_at FROM organizations o
+            JOIN org_members om ON o.id = om.org_id
+            WHERE om.user_id = $1 AND om.role = 'owner'
+            AND (SELECT COUNT(*) FROM org_members WHERE org_id = o.id AND role = 'owner') = 1
+            "#
+        )
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+        Ok(owned_orgs.into_iter().map(|o| OrgResponse {
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            is_personal: o.is_personal,
+            role: "owner".to_string(),
+            created_at: o.created_at,
+        }).collect())
+    }
 }
 
 // ============================================
