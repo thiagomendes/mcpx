@@ -1,20 +1,23 @@
 <template>
   <DashboardLayout>
-    <div class="max-w-4xl">
+    <div class="w-full">
       <h1 class="text-2xl font-bold mb-2">Organization Settings</h1>
       <p class="text-gray-400 mb-8">Manage your organization settings and team members.</p>
 
       <!-- Org Info Card -->
-      <div class="card mb-6">
-        <div class="flex items-start justify-between">
-          <div>
-            <h2 class="text-lg font-semibold mb-1">{{ currentOrg?.name }}</h2>
-            <p class="text-sm text-gray-400">
-              <span class="font-mono bg-gray-800 px-2 py-0.5 rounded">{{ currentOrg?.slug }}</span>
-            </p>
+      <div class="card mb-8">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500/30 to-purple-600/30 flex items-center justify-center">
+              <span class="text-xl font-bold text-violet-300">{{ currentOrg?.name?.charAt(0)?.toUpperCase() }}</span>
+            </div>
+            <div>
+              <h2 class="text-lg font-semibold">{{ currentOrg?.name }}</h2>
+              <p class="text-sm text-gray-400 font-mono">{{ currentOrg?.slug }}</p>
+            </div>
           </div>
           <span 
-            class="px-2 py-1 text-xs rounded-full"
+            class="px-3 py-1 text-xs font-medium rounded-full"
             :class="currentOrg?.is_personal ? 'bg-blue-500/20 text-blue-400' : 'bg-violet-500/20 text-violet-400'"
           >
             {{ currentOrg?.is_personal ? 'Personal' : 'Organization' }}
@@ -22,76 +25,56 @@
         </div>
       </div>
 
-      <!-- Quick Links -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <router-link 
-          v-if="!currentOrg?.is_personal"
-          to="/settings/members"
-          class="card hover:border-violet-500/50 transition-colors group"
-        >
-          <div class="flex items-center gap-4">
-            <div class="w-12 h-12 rounded-lg bg-violet-500/20 flex items-center justify-center">
+      <!-- Quick Links Section -->
+      <div class="mb-8">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Settings</h2>
+        <div class="space-y-4">
+          <!-- Team Members - only for team orgs -->
+          <router-link 
+            v-if="!currentOrg?.is_personal"
+            to="/settings/members"
+            class="card hover:border-violet-500/50 transition-all group flex items-center gap-4"
+          >
+            <div class="w-12 h-12 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
               <UsersIcon class="w-6 h-6 text-violet-400" />
             </div>
-            <div class="flex-1">
+            <div class="flex-1 min-w-0">
               <h3 class="font-medium group-hover:text-violet-400 transition-colors">Team Members</h3>
               <p class="text-sm text-gray-400">Manage who has access to this organization</p>
             </div>
-            <ChevronRightIcon class="w-5 h-5 text-gray-500" />
-          </div>
-        </router-link>
+            <ChevronRightIcon class="w-5 h-5 text-gray-500 shrink-0" />
+          </router-link>
 
-        <router-link 
-          to="/settings/tokens"
-          class="card hover:border-violet-500/50 transition-colors group"
-        >
-          <div class="flex items-center gap-4">
-            <div class="w-12 h-12 rounded-lg bg-amber-500/20 flex items-center justify-center">
+          <!-- Access Tokens - always visible -->
+          <router-link 
+            to="/settings/tokens"
+            class="card hover:border-amber-500/50 transition-all group flex items-center gap-4"
+          >
+            <div class="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
               <KeyIcon class="w-6 h-6 text-amber-400" />
             </div>
-            <div class="flex-1">
-              <h3 class="font-medium group-hover:text-violet-400 transition-colors">Access Tokens</h3>
+            <div class="flex-1 min-w-0">
+              <h3 class="font-medium group-hover:text-amber-400 transition-colors">Access Tokens</h3>
               <p class="text-sm text-gray-400">Create tokens for CLI tools and automations</p>
             </div>
-            <ChevronRightIcon class="w-5 h-5 text-gray-500" />
-          </div>
-        </router-link>
-
-        <div 
-          v-if="!currentOrg?.is_personal && isOwner"
-          class="card border-red-500/20 hover:border-red-500/40 transition-colors"
-        >
-          <div class="flex items-center gap-4">
-            <div class="w-12 h-12 rounded-lg bg-red-500/10 flex items-center justify-center">
-              <TrashIcon class="w-6 h-6 text-red-400" />
-            </div>
-            <div class="flex-1">
-              <h3 class="font-medium text-red-400">Danger Zone</h3>
-              <p class="text-sm text-gray-400">Irreversibly delete this organization</p>
-            </div>
-            <button 
-              @click="showDeleteModal = true"
-              class="px-3 py-1.5 text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors border border-red-500/20"
-            >
-              Delete Organization
-            </button>
-          </div>
+            <ChevronRightIcon class="w-5 h-5 text-gray-500 shrink-0" />
+          </router-link>
         </div>
       </div>
 
-      <!-- Linked Identities -->
-      <div class="mt-8">
-        <h2 class="text-lg font-semibold mb-4">Linked Accounts</h2>
+      <!-- Linked Identities Section -->
+      <div class="mb-8">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Linked Accounts</h2>
         <div class="card">
-          <div class="space-y-3">
+          <div class="divide-y divide-gray-700/50">
             <div 
               v-for="identity in identities" 
               :key="identity.provider"
-              class="flex items-center justify-between py-2"
+              class="flex items-center justify-between py-3 first:pt-0 last:pb-0"
             >
               <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg bg-gray-700 flex items-center justify-center">
-                  <component :is="getProviderIcon(identity.provider)" class="w-4 h-4" />
+                <div class="w-10 h-10 rounded-lg bg-gray-700/50 flex items-center justify-center">
+                  <component :is="getProviderIcon(identity.provider)" class="w-5 h-5" />
                 </div>
                 <div>
                   <div class="font-medium capitalize flex items-center gap-2">
@@ -105,13 +88,35 @@
                   </div>
                 </div>
               </div>
-              <span class="text-sm text-gray-400">
-                Linked {{ formatDate(identity.created_at) }}
-              </span>
+              <span class="text-sm text-gray-500">{{ formatDate(identity.created_at) }}</span>
             </div>
-            <div v-if="identities.length === 0" class="text-gray-400 text-sm py-2">
+            <div v-if="identities.length === 0" class="text-gray-400 text-sm py-3">
               No linked accounts
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Danger Zone Section -->
+      <div v-if="!currentOrg?.is_personal && isOwner" class="mb-8">
+        <h2 class="text-sm font-semibold text-red-400/70 uppercase tracking-wider mb-4">Danger Zone</h2>
+        <div class="card border-red-500/20 bg-red-500/5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
+              <div class="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
+                <TrashIcon class="w-5 h-5 text-red-400" />
+              </div>
+              <div>
+                <h3 class="font-medium text-red-400">Delete Organization</h3>
+                <p class="text-sm text-gray-400">Permanently delete this organization and all its data</p>
+              </div>
+            </div>
+            <button 
+              @click="showDeleteModal = true"
+              class="px-4 py-2 text-sm font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors border border-red-500/20"
+            >
+              Delete
+            </button>
           </div>
         </div>
       </div>
