@@ -41,6 +41,22 @@
           </div>
         </router-link>
 
+        <router-link 
+          to="/settings/tokens"
+          class="card hover:border-violet-500/50 transition-colors group"
+        >
+          <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-lg bg-amber-500/20 flex items-center justify-center">
+              <KeyIcon class="w-6 h-6 text-amber-400" />
+            </div>
+            <div class="flex-1">
+              <h3 class="font-medium group-hover:text-violet-400 transition-colors">Access Tokens</h3>
+              <p class="text-sm text-gray-400">Create tokens for CLI tools and automations</p>
+            </div>
+            <ChevronRightIcon class="w-5 h-5 text-gray-500" />
+          </div>
+        </router-link>
+
         <div 
           v-if="!currentOrg?.is_personal && isOwner"
           class="card border-red-500/20 hover:border-red-500/40 transition-colors"
@@ -155,7 +171,7 @@ import { ref, computed } from 'vue'
 // import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
-import { UsersIcon, ChevronRightIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { UsersIcon, ChevronRightIcon, TrashIcon, KeyIcon } from '@heroicons/vue/24/outline'
 import GoogleIcon from '@/components/icons/GoogleIcon.vue'
 import GitHubIcon from '@/components/icons/GitHubIcon.vue'
 import MicrosoftIcon from '@/components/icons/MicrosoftIcon.vue'

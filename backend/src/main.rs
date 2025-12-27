@@ -197,6 +197,11 @@ async fn main() {
         .route("/api/orgs/members/invite", post(routes::orgs::invite_member))
         .route("/api/orgs/join/:token", get(routes::orgs::get_invite_details).post(routes::orgs::join_org))
     
+        // Personal Access Tokens
+        .route("/api/tokens", get(routes::pat::list_tokens))
+        .route("/api/tokens", post(routes::pat::create_token))
+        .route("/api/tokens/:id", delete(routes::pat::delete_token))
+    
         // MCP Proxy - now uses org_slug instead of user_id
         .route("/mcp/:org_slug/:server_name", post(routes::proxy::mcp_proxy))
     

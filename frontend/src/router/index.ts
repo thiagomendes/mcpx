@@ -80,6 +80,12 @@ const router = createRouter({
             meta: { requiresAuth: true },
         },
         {
+            path: '/settings/tokens',
+            name: 'tokens',
+            component: () => import('@/views/settings/Tokens.vue'),
+            meta: { requiresAuth: true },
+        },
+        {
             path: '/oauth/callback',
             name: 'oauth-callback',
             component: () => import('@/views/OAuthCallback.vue'),

@@ -43,6 +43,7 @@ const SQL_SELECT_GATEWAY_SESSION: &str = "SELECT server_sessions FROM gateway_se
 
 /// MCP Proxy entry point - now uses org_slug instead of user_id in URL
 /// URL format: /mcp/{org_slug}/{server_or_gateway_name}
+/// Authentication: Bearer token (JWT or PAT)
 pub async fn mcp_proxy(
     State(state): State<Arc<AppState>>,
     Path((org_slug, server_name)): Path<(String, String)>,
@@ -51,6 +52,9 @@ pub async fn mcp_proxy(
 ) -> Result<Response, (StatusCode, String)> {
     tracing::info!("MCP Proxy request: org={}, target={}", org_slug, server_name);
     
+    // Extract and validate authentication
+    let auth_result = authenticate_request(&state, &headers).await?;
+    
     // Look up org by slug
     let org_id: Uuid = sqlx::query_scalar(SQL_SELECT_ORG_BY_SLUG)
         .bind(&org_slug)
@@ -58,6 +62,24 @@ pub async fn mcp_proxy(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
         .ok_or((StatusCode::NOT_FOUND, format!("Organization '{}' not found", org_slug)))?;
+    
+    // If authenticated via PAT, verify user has access to this org
+    if let Some(user_id) = auth_result {
+        let has_access = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM org_members WHERE org_id = $1 AND user_id = $2)"
+        )
+            .bind(org_id)
+            .bind(user_id)
+            .fetch_one(&state.db.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        
+        if !has_access {
+            return Err((StatusCode::FORBIDDEN, "User does not have access to this organization".to_string()));
+        }
+        
+        tracing::info!("PAT auth successful: user={} org={}", user_id, org_slug);
+    }
     
     tracing::info!("Resolved org_id for slug '{}': {}", org_slug, org_id);
     
@@ -70,6 +92,44 @@ pub async fn mcp_proxy(
     }
     
     Err((StatusCode::NOT_FOUND, format!("{}: no server or gateway found with name '{}'", error::SERVER_NOT_FOUND, server_name)))
+}
+
+/// Authenticate the incoming request
+/// Returns Some(user_id) if PAT auth successful, None if no auth provided
+async fn authenticate_request(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Option<Uuid>, (StatusCode, String)> {
+    // Extract Authorization header
+    let auth_header = match headers.get("authorization") {
+        Some(h) => h.to_str().unwrap_or(""),
+        None => return Ok(None), // No auth header - allow for now (backwards compat)
+    };
+    
+    // Parse "Bearer <token>"
+    if !auth_header.starts_with("Bearer ") {
+        return Ok(None);
+    }
+    
+    let token = &auth_header[7..];
+    
+    // Check if it's a PAT token
+    if token.starts_with("mcpx_pat_") {
+        let pat_result = super::pat::validate_pat(&state.db.pool, token)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        
+        match pat_result {
+            Some(pat) => {
+                tracing::debug!("PAT validated: {} (user={})", pat.name, pat.user_id);
+                Ok(Some(pat.user_id))
+            }
+            None => Err((StatusCode::UNAUTHORIZED, "Invalid or expired token".to_string())),
+        }
+    } else {
+        // Not a PAT - could be JWT or other token, allow for now
+        Ok(None)
+    }
 }
 
 async fn handle_server_proxy(
