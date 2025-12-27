@@ -54,7 +54,7 @@ pub async fn list_credentials(
 ) -> Result<Json<Vec<CredentialResponse>>, (StatusCode, String)> {
     let server = sqlx::query_scalar::<_, Uuid>(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(auth_user.user_id)
+        .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
@@ -93,7 +93,7 @@ pub async fn create_credential(
 
     let server_id = sqlx::query_scalar::<_, Uuid>(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(auth_user.user_id)
+        .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
@@ -142,7 +142,7 @@ pub async fn delete_credential(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let server_id = sqlx::query_scalar::<_, Uuid>(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(auth_user.user_id)
+        .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
