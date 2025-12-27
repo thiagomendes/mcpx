@@ -67,23 +67,23 @@ struct PatRow {
 const SQL_LIST_PATS: &str = r#"
     SELECT id, name, token_prefix, scopes, last_used_at, expires_at, created_at
     FROM personal_access_tokens
-    WHERE user_id = $1
+    WHERE user_id = $1 AND org_id = $2
     ORDER BY created_at DESC
 "#;
 
 const SQL_CREATE_PAT: &str = r#"
-    INSERT INTO personal_access_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at)
-    VALUES ($1, $2, $3, $4, $5, $6)
+    INSERT INTO personal_access_tokens (user_id, org_id, name, token_hash, token_prefix, scopes, expires_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     RETURNING id, name, token_prefix, scopes, last_used_at, expires_at, created_at
 "#;
 
 const SQL_DELETE_PAT: &str = r#"
     DELETE FROM personal_access_tokens
-    WHERE id = $1 AND user_id = $2
+    WHERE id = $1 AND user_id = $2 AND org_id = $3
 "#;
 
 const SQL_GET_PAT_BY_HASH: &str = r#"
-    SELECT p.id, p.user_id, p.name, p.scopes, p.expires_at
+    SELECT p.id, p.user_id, p.org_id, p.name, p.scopes, p.expires_at
     FROM personal_access_tokens p
     WHERE p.token_hash = $1
 "#;
@@ -126,15 +126,16 @@ fn get_token_prefix(token: &str) -> String {
 // ROUTE HANDLERS
 // ============================================
 
-/// GET /api/tokens - List user's tokens
+/// GET /api/tokens - List user's tokens for current org
 pub async fn list_tokens(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Vec<PatResponse>>, (StatusCode, String)> {
-    let (user_id, _org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     let rows = sqlx::query_as::<_, PatRow>(SQL_LIST_PATS)
         .bind(user_id)
+        .bind(org_id)
         .fetch_all(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -155,13 +156,13 @@ pub async fn list_tokens(
     Ok(Json(response))
 }
 
-/// POST /api/tokens - Create new token
+/// POST /api/tokens - Create new token for current org
 pub async fn create_token(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
     Json(payload): Json<CreatePatRequest>,
 ) -> Result<Json<PatCreatedResponse>, (StatusCode, String)> {
-    let (user_id, _org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     // Validate name
     if payload.name.trim().is_empty() {
@@ -181,6 +182,7 @@ pub async fn create_token(
     // Insert
     let row = sqlx::query_as::<_, PatRow>(SQL_CREATE_PAT)
         .bind(user_id)
+        .bind(org_id)
         .bind(&payload.name)
         .bind(&token_hash)
         .bind(&token_prefix)
@@ -213,11 +215,12 @@ pub async fn delete_token(
     headers: axum::http::HeaderMap,
     Path(token_id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (user_id, _org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
 
     let result = sqlx::query(SQL_DELETE_PAT)
         .bind(token_id)
         .bind(user_id)
+        .bind(org_id)
         .execute(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -244,6 +247,7 @@ pub async fn delete_token(
 pub struct PatValidationResult {
     pub id: Uuid,
     pub user_id: Uuid,
+    pub org_id: Uuid,
     pub name: String,
     pub scopes: sqlx::types::Json<Vec<String>>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
