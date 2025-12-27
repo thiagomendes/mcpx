@@ -370,3 +370,138 @@ pub async fn remove_server_from_gateway(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+// ============================================
+// LIST GATEWAY TOOLS (Admin Endpoint)
+// ============================================
+
+#[derive(Debug, Serialize)]
+pub struct GatewayToolResponse {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+const SQL_GET_GATEWAY_SERVERS: &str = r#"
+    SELECT s.id, s.name, s.url, s.auth_type, s.auth_config
+    FROM gateway_servers gs
+    JOIN servers s ON s.id = gs.server_id
+    WHERE gs.gateway_id = $1
+    ORDER BY gs.priority
+"#;
+
+#[derive(Debug, sqlx::FromRow)]
+struct ServerRowForTools {
+    id: Uuid,
+    name: String,
+    url: String,
+    auth_type: Option<String>,
+    auth_config: Option<serde_json::Value>,
+}
+
+/// GET /api/gateways/:slug/tools - List tools from all servers in gateway (JWT auth)
+pub async fn list_gateway_tools(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(slug): Path<String>,
+) -> Result<Json<Vec<GatewayToolResponse>>, (StatusCode, String)> {
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+
+    // Get gateway ID
+    let gateway_id: Option<(Uuid,)> = sqlx::query_as(SQL_GET_GATEWAY_ID)
+        .bind(&slug)
+        .bind(org_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
+    let gateway_id = gateway_id.ok_or((StatusCode::NOT_FOUND, "Gateway not found".to_string()))?.0;
+
+    // Get all servers in gateway
+    let servers: Vec<ServerRowForTools> = sqlx::query_as(SQL_GET_GATEWAY_SERVERS)
+        .bind(gateway_id)
+        .fetch_all(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
+    if servers.is_empty() {
+        return Ok(Json(vec![]));
+    }
+
+    // Aggregate tools from all servers
+    let mut all_tools: Vec<GatewayToolResponse> = Vec::new();
+
+    for server in &servers {
+        // Build auth headers for server
+        let (auth_header_name, auth_header_value) = get_server_auth_header(&state, server).await;
+        
+        // Fetch tools from server using MCP client
+        match crate::services::mcp_client::list_tools_from_server(
+            &server.url,
+            auth_header_name.as_deref(),
+            auth_header_value.as_deref(),
+        ).await {
+            Ok(tools) => {
+                for tool in tools {
+                    all_tools.push(GatewayToolResponse {
+                        name: tool.name,
+                        description: tool.description,
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch tools from server {}: {}", server.name, e);
+            }
+        }
+    }
+
+    Ok(Json(all_tools))
+}
+
+/// Get auth headers for a server (similar to proxy logic)
+async fn get_server_auth_header(state: &AppState, server: &ServerRowForTools) -> (Option<String>, Option<String>) {
+    match server.auth_type.as_deref() {
+        Some("api_key") => {
+            if let Some(config) = &server.auth_config {
+                let header_name = config.get("header_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("X-API-Key")
+                    .to_string();
+                
+                // Get credential from database
+                if let Some(cred_id) = config.get("credential_id").and_then(|v| v.as_str()) {
+                    if let Ok(cred_uuid) = cred_id.parse::<Uuid>() {
+                        if let Ok(Some(value)) = sqlx::query_scalar::<_, String>(
+                            "SELECT value FROM server_credentials WHERE id = $1"
+                        )
+                            .bind(cred_uuid)
+                            .fetch_optional(&state.db.pool)
+                            .await
+                        {
+                            return (Some(header_name), Some(value));
+                        }
+                    }
+                }
+            }
+            (None, None)
+        }
+        Some("bearer") => {
+            if let Some(config) = &server.auth_config {
+                if let Some(cred_id) = config.get("credential_id").and_then(|v| v.as_str()) {
+                    if let Ok(cred_uuid) = cred_id.parse::<Uuid>() {
+                        if let Ok(Some(value)) = sqlx::query_scalar::<_, String>(
+                            "SELECT value FROM server_credentials WHERE id = $1"
+                        )
+                            .bind(cred_uuid)
+                            .fetch_optional(&state.db.pool)
+                            .await
+                        {
+                            return (Some("Authorization".to_string()), Some(format!("Bearer {}", value)));
+                        }
+                    }
+                }
+            }
+            (None, None)
+        }
+        _ => (None, None)
+    }
+}

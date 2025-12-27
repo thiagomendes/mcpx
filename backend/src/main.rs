@@ -167,6 +167,7 @@ async fn main() {
         .route("/api/gateways/:slug", delete(routes::gateways::delete_gateway))
         .route("/api/gateways/:slug/servers", post(routes::gateways::add_server_to_gateway))
         .route("/api/gateways/:slug/servers/:name", delete(routes::gateways::remove_server_from_gateway))
+        .route("/api/gateways/:slug/tools", get(routes::gateways::list_gateway_tools))
     
         // Metrics
         .route("/api/metrics/today", get(routes::metrics::get_today))
