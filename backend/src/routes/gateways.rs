@@ -390,9 +390,7 @@ const SQL_GET_GATEWAY_SERVERS: &str = r#"
 "#;
 
 const SQL_SELECT_CREDENTIAL: &str = r#"
-    SELECT sc.encrypted_value
-    FROM server_credentials sc
-    WHERE sc.server_id = $1 AND sc.credential_type = $2
+    SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2
 "#;
 
 #[derive(Debug, sqlx::FromRow)]
