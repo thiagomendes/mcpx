@@ -223,7 +223,10 @@ const mcpConfig = computed(() => {
   return JSON.stringify({
     "mcpServers": {
       [gateway.value.slug]: {
-        "url": gateway.value.proxy_url
+        "url": gateway.value.proxy_url,
+        "headers": {
+          "Authorization": "Bearer <YOUR_ACCESS_TOKEN>"
+        }
       }
     }
   }, null, 2)
