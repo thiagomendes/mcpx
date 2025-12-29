@@ -59,6 +59,22 @@
             </div>
             <ChevronRightIcon class="w-5 h-5 text-gray-500 shrink-0" />
           </router-link>
+
+          <!-- Service Accounts (M2M) - visible to admins -->
+          <router-link 
+            v-if="authStore.canAdmin"
+            to="/settings/service-accounts"
+            class="card hover:border-emerald-500/50 transition-all group flex items-center gap-4"
+          >
+            <div class="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
+              <CogIcon class="w-6 h-6 text-emerald-400" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="font-medium group-hover:text-emerald-400 transition-colors">Service Accounts</h3>
+              <p class="text-sm text-gray-400">Create M2M credentials for automated systems</p>
+            </div>
+            <ChevronRightIcon class="w-5 h-5 text-gray-500 shrink-0" />
+          </router-link>
         </div>
       </div>
 
@@ -279,7 +295,7 @@ import { ref, computed } from 'vue'
 // import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
-import { UsersIcon, ChevronRightIcon, TrashIcon, KeyIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
+import { UsersIcon, ChevronRightIcon, TrashIcon, KeyIcon, ExclamationTriangleIcon, CogIcon } from '@heroicons/vue/24/outline'
 import GoogleIcon from '@/components/icons/GoogleIcon.vue'
 import GitHubIcon from '@/components/icons/GitHubIcon.vue'
 import MicrosoftIcon from '@/components/icons/MicrosoftIcon.vue'

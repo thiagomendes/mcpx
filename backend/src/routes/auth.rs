@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Form, Path, Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Redirect, Response},
     Json,
@@ -369,4 +369,103 @@ pub fn extract_org_context(headers: &axum::http::HeaderMap, secret: &str) -> Res
         .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))?;
     
     Ok((user_id, org_id, claims.org_slug))
+}
+
+// ============================================
+// OAUTH CLIENT CREDENTIALS (M2M)
+// ============================================
+
+#[derive(Debug, Deserialize)]
+pub struct TokenRequest {
+    pub grant_type: String,
+    pub client_id: String,
+    pub client_secret: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct M2MTokenResponse {
+    pub access_token: String,
+    pub token_type: String,
+    pub expires_in: i64,
+}
+
+/// M2M JWT Claims (different from user JWT)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct M2MClaims {
+    pub sub: String,         // service_account_id
+    pub org_id: String,      // org UUID
+    pub org_slug: String,    // org slug for proxy URLs
+    pub scopes: Vec<String>, // allowed scopes
+    pub exp: i64,
+    pub iat: i64,
+    pub iss: String,
+    pub token_type: String,  // "m2m" to distinguish from user tokens
+}
+
+const M2M_TOKEN_EXPIRY_SECONDS: i64 = 3600; // 1 hour
+
+/// POST /api/auth/token - OAuth 2.0 Client Credentials flow
+pub async fn oauth_token(
+    State(state): State<Arc<AppState>>,
+    Form(payload): Form<TokenRequest>,
+) -> Result<Json<M2MTokenResponse>, (StatusCode, String)> {
+    // Validate grant_type
+    if payload.grant_type != "client_credentials" {
+        return Err((StatusCode::BAD_REQUEST, "unsupported_grant_type".to_string()));
+    }
+
+    // Validate client_id prefix
+    if !payload.client_id.starts_with("mcpx_sa_") {
+        return Err((StatusCode::UNAUTHORIZED, "invalid_client".to_string()));
+    }
+
+    // Validate credentials
+    let account = crate::routes::service_accounts::validate_service_account(
+        &state.db.pool,
+        &payload.client_id,
+        &payload.client_secret,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+    .ok_or((StatusCode::UNAUTHORIZED, "invalid_client".to_string()))?;
+
+    // Get org slug for the JWT
+    let org_slug: Option<String> = sqlx::query_scalar("SELECT slug FROM organizations WHERE id = $1")
+        .bind(account.org_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+
+    let org_slug = org_slug.ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Org not found".to_string()))?;
+
+    // Extract scopes from JSON
+    let scopes: Vec<String> = serde_json::from_value(account.scopes.clone()).unwrap_or_default();
+
+    // Create M2M JWT
+    let now = chrono::Utc::now().timestamp();
+    let claims = M2MClaims {
+        sub: account.id.to_string(),
+        org_id: account.org_id.to_string(),
+        org_slug,
+        scopes,
+        exp: now + M2M_TOKEN_EXPIRY_SECONDS,
+        iat: now,
+        iss: "mcpx".to_string(),
+        token_type: "m2m".to_string(),
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Token encoding error: {}", e)))?;
+
+    tracing::info!("M2M token issued for service account: {}", payload.client_id);
+
+    Ok(Json(M2MTokenResponse {
+        access_token: token,
+        token_type: "Bearer".to_string(),
+        expires_in: M2M_TOKEN_EXPIRY_SECONDS,
+    }))
 }

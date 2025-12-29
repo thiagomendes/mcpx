@@ -84,7 +84,9 @@ pub async fn mcp_proxy(
 }
 
 /// Authenticate the incoming request
-/// Returns (user_id, token_org_id) if PAT auth successful, error if no/invalid auth
+/// Returns (user_id_or_sa_id, token_org_id) if auth successful
+/// - PAT tokens: validated via database lookup
+/// - M2M JWT tokens: validated via JWT signature (issued by /api/auth/token)
 async fn authenticate_request(
     state: &AppState,
     headers: &HeaderMap,
@@ -115,10 +117,44 @@ async fn authenticate_request(
             }
             None => Err((StatusCode::UNAUTHORIZED, "Invalid or expired token".to_string())),
         }
+    } else if token.starts_with("ey") {
+        // Looks like a JWT - try to validate as M2M token
+        validate_m2m_jwt(token, &state.config.jwt_secret)
     } else {
-        // Not a PAT - invalid token format
-        Err((StatusCode::UNAUTHORIZED, "Invalid token format. Use a Personal Access Token (mcpx_pat_...)".to_string()))
+        // Unknown token format
+        Err((StatusCode::UNAUTHORIZED, "Invalid token format. Use a Personal Access Token or M2M JWT".to_string()))
     }
+}
+
+/// Validate M2M JWT token and extract service_account_id + org_id
+fn validate_m2m_jwt(token: &str, secret: &str) -> Result<(Uuid, Uuid), (StatusCode, String)> {
+    use jsonwebtoken::{decode, DecodingKey, Validation};
+    use super::auth::M2MClaims;
+    
+    let token_data = decode::<M2MClaims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    )
+    .map_err(|e| {
+        tracing::warn!("M2M JWT validation failed: {}", e);
+        (StatusCode::UNAUTHORIZED, "Invalid or expired M2M token".to_string())
+    })?;
+    
+    let claims = token_data.claims;
+    
+    // Verify it's an M2M token
+    if claims.token_type != "m2m" {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid token type".to_string()));
+    }
+    
+    let service_account_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid service account ID in token".to_string()))?;
+    let org_id = Uuid::parse_str(&claims.org_id)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid org ID in token".to_string()))?;
+    
+    tracing::debug!("M2M JWT validated: sa={}, org={}", service_account_id, org_id);
+    Ok((service_account_id, org_id))
 }
 
 async fn handle_server_proxy(

@@ -206,6 +206,14 @@ async fn main() {
         .route("/api/tokens", get(routes::pat::list_tokens))
         .route("/api/tokens", post(routes::pat::create_token))
         .route("/api/tokens/:id", delete(routes::pat::delete_token))
+
+        // Service Accounts (M2M)
+        .route("/api/service-accounts", get(routes::service_accounts::list_service_accounts))
+        .route("/api/service-accounts", post(routes::service_accounts::create_service_account))
+        .route("/api/service-accounts/:id", get(routes::service_accounts::get_service_account))
+        .route("/api/service-accounts/:id", put(routes::service_accounts::update_service_account))
+        .route("/api/service-accounts/:id", delete(routes::service_accounts::delete_service_account))
+        .route("/api/auth/token", post(routes::auth::oauth_token))
     
         // MCP Proxy - now uses org_slug instead of user_id
         .route("/mcp/:org_slug/:server_name", post(routes::proxy::mcp_proxy))
