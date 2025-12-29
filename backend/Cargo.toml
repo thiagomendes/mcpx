@@ -50,3 +50,8 @@ sha2 = "0.10"
 urlencoding = "2.1"
 regex = "1.11"
 url = "2.5"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tower = { version = "0.5", features = ["util"] }
+axum-test = "17"
