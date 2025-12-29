@@ -1657,5 +1657,134 @@ mod tests {
             assert_eq!(result[0].name, "cf_search");
         }
     }
+
+    mod auth_result_tests {
+        use super::*;
+
+        fn make_auth_with_scopes(scopes: Option<Vec<String>>) -> AuthResult {
+            AuthResult {
+                user_or_sa_id: Uuid::new_v4(),
+                org_id: Uuid::new_v4(),
+                scopes,
+            }
+        }
+
+        #[test]
+        fn has_scope_returns_true_for_pat_any_scope() {
+            let auth = make_auth_with_scopes(None); // PAT = full access
+            assert!(auth.has_scope("mcp:tool:execute"));
+            assert!(auth.has_scope("mcp:server:read"));
+            assert!(auth.has_scope("any:random:scope"));
+        }
+
+        #[test]
+        fn has_scope_returns_true_when_scope_present() {
+            let auth = make_auth_with_scopes(Some(vec![
+                "mcp:server:read".to_string(),
+                "mcp:tool:execute".to_string(),
+            ]));
+            assert!(auth.has_scope("mcp:server:read"));
+            assert!(auth.has_scope("mcp:tool:execute"));
+        }
+
+        #[test]
+        fn has_scope_returns_false_when_scope_missing() {
+            let auth = make_auth_with_scopes(Some(vec!["mcp:server:read".to_string()]));
+            assert!(auth.has_scope("mcp:server:read"));
+            assert!(!auth.has_scope("mcp:tool:execute"));
+        }
+
+        #[test]
+        fn has_scope_returns_false_for_empty_scopes() {
+            let auth = make_auth_with_scopes(Some(vec![]));
+            assert!(!auth.has_scope("mcp:server:read"));
+        }
+    }
+
+    mod scope_validation_tests {
+        use super::*;
+
+        fn make_pat_auth() -> AuthResult {
+            AuthResult {
+                user_or_sa_id: Uuid::new_v4(),
+                org_id: Uuid::new_v4(),
+                scopes: None,
+            }
+        }
+
+        fn make_m2m_auth(scopes: Vec<&str>) -> AuthResult {
+            AuthResult {
+                user_or_sa_id: Uuid::new_v4(),
+                org_id: Uuid::new_v4(),
+                scopes: Some(scopes.iter().map(|s| s.to_string()).collect()),
+            }
+        }
+
+        #[test]
+        fn pat_allows_all_methods() {
+            let auth = make_pat_auth();
+            assert!(validate_scope_for_method(&auth, "initialize").is_ok());
+            assert!(validate_scope_for_method(&auth, "tools/list").is_ok());
+            assert!(validate_scope_for_method(&auth, "tools/call").is_ok());
+            assert!(validate_scope_for_method(&auth, "resources/list").is_ok());
+        }
+
+        #[test]
+        fn m2m_initialize_always_allowed() {
+            let auth = make_m2m_auth(vec![]); // No scopes
+            assert!(validate_scope_for_method(&auth, "initialize").is_ok());
+        }
+
+        #[test]
+        fn m2m_notifications_always_allowed() {
+            let auth = make_m2m_auth(vec![]);
+            assert!(validate_scope_for_method(&auth, "notifications/initialized").is_ok());
+            assert!(validate_scope_for_method(&auth, "notifications/any").is_ok());
+        }
+
+        #[test]
+        fn m2m_tools_list_requires_server_read() {
+            let auth_with_read = make_m2m_auth(vec!["mcp:server:read"]);
+            let auth_without_read = make_m2m_auth(vec!["mcp:tool:execute"]);
+            
+            assert!(validate_scope_for_method(&auth_with_read, "tools/list").is_ok());
+            assert!(validate_scope_for_method(&auth_without_read, "tools/list").is_err());
+        }
+
+        #[test]
+        fn m2m_tools_call_requires_tool_execute() {
+            let auth_with_execute = make_m2m_auth(vec!["mcp:tool:execute"]);
+            let auth_without_execute = make_m2m_auth(vec!["mcp:server:read"]);
+            
+            assert!(validate_scope_for_method(&auth_with_execute, "tools/call").is_ok());
+            assert!(validate_scope_for_method(&auth_without_execute, "tools/call").is_err());
+        }
+
+        #[test]
+        fn m2m_read_only_cannot_execute() {
+            let auth = make_m2m_auth(vec!["mcp:server:read"]);
+            
+            // Can read
+            assert!(validate_scope_for_method(&auth, "tools/list").is_ok());
+            assert!(validate_scope_for_method(&auth, "resources/list").is_ok());
+            
+            // Cannot execute
+            let result = validate_scope_for_method(&auth, "tools/call");
+            assert!(result.is_err());
+            let (status, msg) = result.unwrap_err();
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert!(msg.contains("mcp:tool:execute"));
+        }
+
+        #[test]
+        fn m2m_full_access_can_do_everything() {
+            let auth = make_m2m_auth(vec!["mcp:server:read", "mcp:tool:execute"]);
+            
+            assert!(validate_scope_for_method(&auth, "initialize").is_ok());
+            assert!(validate_scope_for_method(&auth, "tools/list").is_ok());
+            assert!(validate_scope_for_method(&auth, "tools/call").is_ok());
+            assert!(validate_scope_for_method(&auth, "resources/list").is_ok());
+        }
+    }
 }
 

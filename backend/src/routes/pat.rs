@@ -287,3 +287,70 @@ pub async fn validate_pat(
 
     Ok(result)
 }
+
+// ============================================
+// UNIT TESTS
+// ============================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_token_has_correct_prefix() {
+        let token = generate_token();
+        assert!(token.starts_with(TOKEN_PREFIX));
+    }
+
+    #[test]
+    fn test_generate_token_has_correct_length() {
+        let token = generate_token();
+        let expected_length = TOKEN_PREFIX.len() + TOKEN_RANDOM_LENGTH;
+        assert_eq!(token.len(), expected_length);
+    }
+
+    #[test]
+    fn test_generate_token_is_unique() {
+        let token1 = generate_token();
+        let token2 = generate_token();
+        assert_ne!(token1, token2);
+    }
+
+    #[test]
+    fn test_hash_token_is_deterministic() {
+        let token = "mcpx_pat_test123456789abcdefghijkl";
+        let hash1 = hash_token(token);
+        let hash2 = hash_token(token);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_token_different_for_different_tokens() {
+        let hash1 = hash_token("mcpx_pat_token1");
+        let hash2 = hash_token("mcpx_pat_token2");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_token_is_sha256_hex() {
+        let hash = hash_token("test");
+        // SHA256 produces 64 hex characters
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_get_token_prefix_returns_first_12_chars() {
+        let token = "mcpx_pat_abcdefghijklmnop";
+        let prefix = get_token_prefix(token);
+        assert_eq!(prefix, "mcpx_pat_abc");
+        assert_eq!(prefix.len(), 12);
+    }
+
+    #[test]
+    fn test_get_token_prefix_short_token() {
+        let token = "short";
+        let prefix = get_token_prefix(token);
+        assert_eq!(prefix, "short");
+    }
+}

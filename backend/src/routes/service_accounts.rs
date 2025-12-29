@@ -348,3 +348,80 @@ pub async fn validate_service_account(
 
     Ok(result)
 }
+
+// ============================================
+// UNIT TESTS
+// ============================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_client_id_has_correct_prefix() {
+        let client_id = generate_client_id();
+        assert!(client_id.starts_with(CLIENT_ID_PREFIX));
+    }
+
+    #[test]
+    fn test_generate_client_id_has_correct_length() {
+        let client_id = generate_client_id();
+        let expected_length = CLIENT_ID_PREFIX.len() + ID_RANDOM_LENGTH;
+        assert_eq!(client_id.len(), expected_length);
+    }
+
+    #[test]
+    fn test_generate_client_id_is_unique() {
+        let id1 = generate_client_id();
+        let id2 = generate_client_id();
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_generate_client_secret_has_correct_prefix() {
+        let secret = generate_client_secret();
+        assert!(secret.starts_with(SECRET_PREFIX));
+    }
+
+    #[test]
+    fn test_generate_client_secret_has_correct_length() {
+        let secret = generate_client_secret();
+        let expected_length = SECRET_PREFIX.len() + SECRET_RANDOM_LENGTH;
+        assert_eq!(secret.len(), expected_length);
+    }
+
+    #[test]
+    fn test_generate_client_secret_is_unique() {
+        let secret1 = generate_client_secret();
+        let secret2 = generate_client_secret();
+        assert_ne!(secret1, secret2);
+    }
+
+    #[test]
+    fn test_hash_secret_is_deterministic() {
+        let secret = "mcpx_secret_test123456789abcdefgh";
+        let hash1 = hash_secret(secret);
+        let hash2 = hash_secret(secret);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_secret_different_for_different_secrets() {
+        let hash1 = hash_secret("secret1");
+        let hash2 = hash_secret("secret2");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_secret_is_sha256_hex() {
+        let hash = hash_secret("test");
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_default_scopes() {
+        let scopes = default_scopes();
+        assert_eq!(scopes, vec!["mcp:tool:execute"]);
+    }
+}
