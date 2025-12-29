@@ -41,6 +41,60 @@ const SQL_UPSERT_GATEWAY_SESSION: &str = r#"
 
 const SQL_SELECT_GATEWAY_SESSION: &str = "SELECT server_sessions FROM gateway_sessions WHERE id = $1";
 
+/// Authentication result from PAT or M2M JWT validation
+#[derive(Debug, Clone)]
+pub struct AuthResult {
+    pub user_or_sa_id: Uuid,
+    pub org_id: Uuid,
+    /// Scopes from M2M token. None = PAT (full access), Some([]) = no scopes
+    pub scopes: Option<Vec<String>>,
+}
+
+impl AuthResult {
+    /// Check if this auth has a specific scope (PATs always have full access)
+    pub fn has_scope(&self, scope: &str) -> bool {
+        match &self.scopes {
+            None => true, // PAT = full access
+            Some(scopes) => scopes.iter().any(|s| s == scope),
+        }
+    }
+}
+
+/// Validate that the auth has the required scope for the given MCP method
+/// - initialize, notifications/*: always allowed
+/// - tools/list, resources/list, prompts/list: requires mcp:server:read
+/// - tools/call: requires mcp:tool:execute
+fn validate_scope_for_method(auth: &AuthResult, method: &str) -> Result<(), (StatusCode, String)> {
+    // PAT tokens have full access (scopes = None)
+    if auth.scopes.is_none() {
+        return Ok(());
+    }
+    
+    // Determine required scope based on method
+    let required_scope = match method {
+        // Initialize and notifications are always allowed
+        "initialize" => return Ok(()),
+        m if m.starts_with("notifications/") => return Ok(()),
+        
+        // Read operations require server:read
+        "tools/list" | "resources/list" | "prompts/list" | 
+        "resources/read" | "prompts/get" => "mcp:server:read",
+        
+        // Execute operations require tool:execute
+        "tools/call" => "mcp:tool:execute",
+        
+        // Unknown methods - allow for now
+        _ => return Ok(()),
+    };
+    
+    if auth.has_scope(required_scope) {
+        Ok(())
+    } else {
+        tracing::warn!("Scope denied: method={} requires {} but token has {:?}", method, required_scope, auth.scopes);
+        Err((StatusCode::FORBIDDEN, format!("Insufficient scope: {} requires '{}'", method, required_scope)))
+    }
+}
+
 /// MCP Proxy entry point - now uses org_slug instead of user_id in URL
 /// URL format: /mcp/{org_slug}/{server_or_gateway_name}
 /// Authentication: Bearer token (JWT or PAT)
@@ -52,8 +106,8 @@ pub async fn mcp_proxy(
 ) -> Result<Response, (StatusCode, String)> {
     tracing::info!("MCP Proxy request: org={}, target={}", org_slug, server_name);
     
-    // Extract and validate authentication - returns (user_id, token_org_id)
-    let (user_id, token_org_id) = authenticate_request(&state, &headers).await?;
+    // Extract and validate authentication - returns AuthResult with scopes
+    let auth = authenticate_request(&state, &headers).await?;
     
     // Look up org by slug
     let org_id: Uuid = sqlx::query_scalar(SQL_SELECT_ORG_BY_SLUG)
@@ -64,33 +118,31 @@ pub async fn mcp_proxy(
         .ok_or((StatusCode::NOT_FOUND, format!("Organization '{}' not found", org_slug)))?;
     
     // Verify token was created for THIS org (not just that user is a member)
-    if token_org_id != org_id {
+    if auth.org_id != org_id {
         return Err((StatusCode::FORBIDDEN, "Token not valid for this organization".to_string()));
     }
     
-    tracing::info!("PAT auth successful: user={} org={}", user_id, org_slug);
-    
-    tracing::info!("Resolved org_id for slug '{}': {}", org_slug, org_id);
+    tracing::info!("Auth successful: id={} org={} scopes={:?}", auth.user_or_sa_id, org_slug, auth.scopes);
     
     if let Ok(server) = get_server_by_name(&state, &server_name, org_id).await {
-        return handle_server_proxy(&state, server, headers, body).await;
+        return handle_server_proxy(&state, server, headers, body, &auth).await;
     }
     
     if let Ok(gateway) = get_gateway_by_slug(&state, &server_name, org_id).await {
-        return handle_gateway_proxy(&state, gateway, org_id, headers, body).await;
+        return handle_gateway_proxy(&state, gateway, org_id, headers, body, &auth).await;
     }
     
     Err((StatusCode::NOT_FOUND, format!("{}: no server or gateway found with name '{}'", error::SERVER_NOT_FOUND, server_name)))
 }
 
 /// Authenticate the incoming request
-/// Returns (user_id_or_sa_id, token_org_id) if auth successful
-/// - PAT tokens: validated via database lookup
-/// - M2M JWT tokens: validated via JWT signature (issued by /api/auth/token)
+/// Returns AuthResult with user/sa id, org_id, and scopes (if M2M)
+/// - PAT tokens: validated via database lookup (full access, scopes = None)
+/// - M2M JWT tokens: validated via JWT signature with scopes from token
 async fn authenticate_request(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<(Uuid, Uuid), (StatusCode, String)> {
+) -> Result<AuthResult, (StatusCode, String)> {
     // Extract Authorization header
     let auth_header = match headers.get("authorization") {
         Some(h) => h.to_str().unwrap_or(""),
@@ -113,7 +165,11 @@ async fn authenticate_request(
         match pat_result {
             Some(pat) => {
                 tracing::debug!("PAT validated: {} (user={}, org={})", pat.name, pat.user_id, pat.org_id);
-                Ok((pat.user_id, pat.org_id))
+                Ok(AuthResult {
+                    user_or_sa_id: pat.user_id,
+                    org_id: pat.org_id,
+                    scopes: None, // PAT = full access
+                })
             }
             None => Err((StatusCode::UNAUTHORIZED, "Invalid or expired token".to_string())),
         }
@@ -126,8 +182,8 @@ async fn authenticate_request(
     }
 }
 
-/// Validate M2M JWT token and extract service_account_id + org_id
-fn validate_m2m_jwt(token: &str, secret: &str) -> Result<(Uuid, Uuid), (StatusCode, String)> {
+/// Validate M2M JWT token and extract service_account_id, org_id, and scopes
+fn validate_m2m_jwt(token: &str, secret: &str) -> Result<AuthResult, (StatusCode, String)> {
     use jsonwebtoken::{decode, DecodingKey, Validation};
     use super::auth::M2MClaims;
     
@@ -153,8 +209,12 @@ fn validate_m2m_jwt(token: &str, secret: &str) -> Result<(Uuid, Uuid), (StatusCo
     let org_id = Uuid::parse_str(&claims.org_id)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid org ID in token".to_string()))?;
     
-    tracing::debug!("M2M JWT validated: sa={}, org={}", service_account_id, org_id);
-    Ok((service_account_id, org_id))
+    tracing::debug!("M2M JWT validated: sa={}, org={}, scopes={:?}", service_account_id, org_id, claims.scopes);
+    Ok(AuthResult {
+        user_or_sa_id: service_account_id,
+        org_id,
+        scopes: Some(claims.scopes),
+    })
 }
 
 async fn handle_server_proxy(
@@ -162,6 +222,7 @@ async fn handle_server_proxy(
     server: ServerRow,
     headers: HeaderMap,
     body: Body,
+    auth: &AuthResult,
 ) -> Result<Response, (StatusCode, String)> {
     let start = std::time::Instant::now();
 
@@ -185,6 +246,9 @@ async fn handle_server_proxy(
     let method = request.get("method")
         .and_then(|m| m.as_str())
         .unwrap_or("");
+    
+    // Scope validation: check permissions based on method
+    validate_scope_for_method(auth, method)?;
     
     // Extract tool_name when method is tools/call
     let tool_name = if method == "tools/call" {
@@ -375,6 +439,7 @@ async fn handle_gateway_proxy(
     org_id: Uuid,
     headers: HeaderMap,
     body: Body,
+    auth: &AuthResult,
 ) -> Result<Response, (StatusCode, String)> {
     let start = std::time::Instant::now();
     tracing::info!("Gateway proxy: {}", gateway.name);
@@ -396,6 +461,9 @@ async fn handle_gateway_proxy(
     let method = request.get("method")
         .and_then(|m| m.as_str())
         .unwrap_or("");
+    
+    // Scope validation: check permissions based on method
+    validate_scope_for_method(auth, method)?;
     
     // Extract tool_name when method is tools/call
     let tool_name = if method == "tools/call" {
