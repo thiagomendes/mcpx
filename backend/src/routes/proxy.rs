@@ -1788,3 +1788,292 @@ mod tests {
     }
 }
 
+// ============================================
+// REPOSITORY-BASED AUTHORIZATION LOGIC
+// ============================================
+
+use crate::services::repositories::{
+    OrgRepository, OrgData,
+    ServerRepository, ServerData,
+    GatewayRepository, GatewayData, GatewayServerData,
+};
+
+/// Verify that the authenticated user/service account has access to the specified org
+/// Returns the org data if access is granted
+pub async fn verify_org_access<R: OrgRepository>(
+    repo: &R,
+    auth: &AuthResult,
+    org_slug: &str,
+) -> Result<OrgData, (StatusCode, String)> {
+    // Look up org by slug
+    let org = repo.find_by_slug(org_slug).await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, format!("Organization '{}' not found", org_slug)))?;
+    
+    // Verify the token was created for this org
+    if auth.org_id != org.id {
+        return Err((StatusCode::FORBIDDEN, 
+            "Token not authorized for this organization".to_string()));
+    }
+    
+    Ok(org)
+}
+
+/// Resolve a target name to either a server or gateway
+#[derive(Debug, Clone)]
+pub enum ProxyTarget {
+    Server(ServerData),
+    Gateway(GatewayData, Vec<GatewayServerData>),
+}
+
+/// Resolve the proxy target (server or gateway) by name
+pub async fn resolve_proxy_target<S: ServerRepository, G: GatewayRepository>(
+    server_repo: &S,
+    gateway_repo: &G,
+    org_id: Uuid,
+    target_name: &str,
+) -> Result<ProxyTarget, (StatusCode, String)> {
+    // Try to find a server first
+    if let Some(server) = server_repo.find_by_name(org_id, target_name).await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))? 
+    {
+        if !server.enabled {
+            return Err((StatusCode::SERVICE_UNAVAILABLE, 
+                format!("Server '{}' is disabled", target_name)));
+        }
+        return Ok(ProxyTarget::Server(server));
+    }
+    
+    // Try to find a gateway
+    if let Some(gateway) = gateway_repo.find_by_slug(org_id, target_name).await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))? 
+    {
+        if !gateway.enabled {
+            return Err((StatusCode::SERVICE_UNAVAILABLE, 
+                format!("Gateway '{}' is disabled", target_name)));
+        }
+        
+        let servers = gateway_repo.get_servers(gateway.id).await
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?;
+        
+        if servers.is_empty() {
+            return Err((StatusCode::NOT_FOUND, 
+                format!("Gateway '{}' has no servers configured", target_name)));
+        }
+        
+        return Ok(ProxyTarget::Gateway(gateway, servers));
+    }
+    
+    Err((StatusCode::NOT_FOUND, 
+        format!("Server or gateway '{}' not found", target_name)))
+}
+
+#[cfg(test)]
+mod authorization_tests {
+    use super::*;
+    use crate::services::repositories::mocks::*;
+
+    fn make_auth(user_or_sa_id: Uuid, org_id: Uuid) -> AuthResult {
+        AuthResult {
+            user_or_sa_id,
+            org_id,
+            scopes: None, // PAT full access
+        }
+    }
+
+    mod verify_org_access_tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn returns_org_when_access_granted() {
+            let org = OrgData {
+                id: Uuid::new_v4(),
+                name: "Test Org".to_string(),
+                slug: "test-org".to_string(),
+                is_personal: false,
+            };
+            let auth = make_auth(Uuid::new_v4(), org.id);
+            let repo = MockOrgRepository::with_org(org.clone());
+            
+            let result = verify_org_access(&repo, &auth, "test-org").await;
+            
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap().slug, "test-org");
+        }
+
+        #[tokio::test]
+        async fn returns_not_found_for_unknown_org() {
+            let auth = make_auth(Uuid::new_v4(), Uuid::new_v4());
+            let repo = MockOrgRepository::new();
+            
+            let result = verify_org_access(&repo, &auth, "unknown-org").await;
+            
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::NOT_FOUND);
+        }
+
+        #[tokio::test]
+        async fn returns_forbidden_for_wrong_org() {
+            let org = OrgData {
+                id: Uuid::new_v4(),
+                name: "Other Org".to_string(),
+                slug: "other-org".to_string(),
+                is_personal: false,
+            };
+            // Auth was created for a different org
+            let auth = make_auth(Uuid::new_v4(), Uuid::new_v4());
+            let repo = MockOrgRepository::with_org(org);
+            
+            let result = verify_org_access(&repo, &auth, "other-org").await;
+            
+            assert!(result.is_err());
+            let (status, msg) = result.unwrap_err();
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert!(msg.contains("not authorized"));
+        }
+    }
+
+    mod resolve_proxy_target_tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn resolves_server_by_name() {
+            let org_id = Uuid::new_v4();
+            let server = ServerData {
+                id: Uuid::new_v4(),
+                org_id,
+                name: "my-server".to_string(),
+                url: "http://localhost:3000".to_string(),
+                transport: "http".to_string(),
+                enabled: true,
+                auth_type: "none".to_string(),
+            };
+            
+            let server_repo = MockServerRepository::with_server(server);
+            let gateway_repo = MockGatewayRepository::new();
+            
+            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "my-server").await;
+            
+            assert!(result.is_ok());
+            match result.unwrap() {
+                ProxyTarget::Server(s) => assert_eq!(s.name, "my-server"),
+                _ => panic!("Expected Server target"),
+            }
+        }
+
+        #[tokio::test]
+        async fn resolves_gateway_with_servers() {
+            let org_id = Uuid::new_v4();
+            let gateway = GatewayData {
+                id: Uuid::new_v4(),
+                org_id,
+                name: "My Gateway".to_string(),
+                slug: "my-gateway".to_string(),
+                enabled: true,
+            };
+            let servers = vec![
+                GatewayServerData {
+                    server_id: Uuid::new_v4(),
+                    server_name: "server-1".to_string(),
+                    priority: 0,
+                },
+            ];
+            
+            let server_repo = MockServerRepository::new();
+            let gateway_repo = MockGatewayRepository::with_servers(gateway, servers);
+            
+            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "my-gateway").await;
+            
+            assert!(result.is_ok());
+            match result.unwrap() {
+                ProxyTarget::Gateway(g, svrs) => {
+                    assert_eq!(g.slug, "my-gateway");
+                    assert_eq!(svrs.len(), 1);
+                },
+                _ => panic!("Expected Gateway target"),
+            }
+        }
+
+        #[tokio::test]
+        async fn returns_not_found_when_neither_exists() {
+            let org_id = Uuid::new_v4();
+            let server_repo = MockServerRepository::new();
+            let gateway_repo = MockGatewayRepository::new();
+            
+            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "unknown").await;
+            
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::NOT_FOUND);
+        }
+
+        #[tokio::test]
+        async fn returns_unavailable_for_disabled_server() {
+            let org_id = Uuid::new_v4();
+            let server = ServerData {
+                id: Uuid::new_v4(),
+                org_id,
+                name: "disabled-server".to_string(),
+                url: "http://localhost:3000".to_string(),
+                transport: "http".to_string(),
+                enabled: false,
+                auth_type: "none".to_string(),
+            };
+            
+            let server_repo = MockServerRepository::with_server(server);
+            let gateway_repo = MockGatewayRepository::new();
+            
+            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "disabled-server").await;
+            
+            assert!(result.is_err());
+            let (status, msg) = result.unwrap_err();
+            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+            assert!(msg.contains("disabled"));
+        }
+
+        #[tokio::test]
+        async fn returns_unavailable_for_disabled_gateway() {
+            let org_id = Uuid::new_v4();
+            let gateway = GatewayData {
+                id: Uuid::new_v4(),
+                org_id,
+                name: "Disabled Gateway".to_string(),
+                slug: "disabled-gateway".to_string(),
+                enabled: false,
+            };
+            
+            let server_repo = MockServerRepository::new();
+            let gateway_repo = MockGatewayRepository::with_gateway(gateway);
+            
+            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "disabled-gateway").await;
+            
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        }
+
+        #[tokio::test]
+        async fn returns_not_found_for_gateway_without_servers() {
+            let org_id = Uuid::new_v4();
+            let gateway = GatewayData {
+                id: Uuid::new_v4(),
+                org_id,
+                name: "Empty Gateway".to_string(),
+                slug: "empty-gateway".to_string(),
+                enabled: true,
+            };
+            
+            let server_repo = MockServerRepository::new();
+            // Gateway exists but has no servers
+            let gateway_repo = MockGatewayRepository::with_gateway(gateway);
+            
+            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "empty-gateway").await;
+            
+            assert!(result.is_err());
+            let (status, msg) = result.unwrap_err();
+            assert_eq!(status, StatusCode::NOT_FOUND);
+            assert!(msg.contains("no servers"));
+        }
+    }
+}
