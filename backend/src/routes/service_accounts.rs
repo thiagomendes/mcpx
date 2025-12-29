@@ -425,3 +425,72 @@ mod tests {
         assert_eq!(scopes, vec!["mcp:tool:execute"]);
     }
 }
+
+// ============================================
+// REPOSITORY-BASED VALIDATION (for testing)
+// ============================================
+
+use crate::services::repositories::{ServiceAccountRepository, ServiceAccountData};
+
+/// Validate service account credentials using repository trait (testable)
+pub async fn validate_credentials_with_repo<R: ServiceAccountRepository>(
+    repo: &R,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<Option<ServiceAccountData>, crate::services::repositories::RepoError> {
+    let secret_hash = hash_secret(client_secret);
+    let result = repo.validate_credentials(client_id, &secret_hash).await?;
+
+    if let Some(ref account) = result {
+        // Update last_used_at (ignore errors)
+        let _ = repo.update_last_used(account.id).await;
+    }
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+    use crate::services::repositories::mocks::MockServiceAccountRepository;
+
+    #[tokio::test]
+    async fn validate_returns_none_when_not_found() {
+        let repo = MockServiceAccountRepository::new();
+        let result = validate_credentials_with_repo(&repo, "client_id", "secret").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn validate_returns_account_when_found() {
+        let account = ServiceAccountData {
+            id: Uuid::new_v4(),
+            org_id: Uuid::new_v4(),
+            scopes: vec!["mcp:server:read".to_string(), "mcp:tool:execute".to_string()],
+        };
+        let repo = MockServiceAccountRepository::with_account(account.clone());
+        
+        let result = validate_credentials_with_repo(&repo, "client", "secret").await.unwrap();
+        
+        assert!(result.is_some());
+        let found = result.unwrap();
+        assert_eq!(found.scopes.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn validate_returns_correct_scopes() {
+        let account = ServiceAccountData {
+            id: Uuid::new_v4(),
+            org_id: Uuid::new_v4(),
+            scopes: vec!["mcp:server:read".to_string()],
+        };
+        let repo = MockServiceAccountRepository::with_account(account);
+        
+        let result = validate_credentials_with_repo(&repo, "client", "secret").await.unwrap();
+        
+        assert!(result.is_some());
+        let scopes = result.unwrap().scopes;
+        assert!(scopes.contains(&"mcp:server:read".to_string()));
+        assert!(!scopes.contains(&"mcp:tool:execute".to_string()));
+    }
+}

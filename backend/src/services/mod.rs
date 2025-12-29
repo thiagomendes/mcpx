@@ -7,3 +7,4 @@ pub mod metrics;
 pub mod audit;
 pub mod alerts;
 pub mod org;
+pub mod repositories;

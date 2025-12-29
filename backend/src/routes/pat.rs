@@ -354,3 +354,114 @@ mod tests {
         assert_eq!(prefix, "short");
     }
 }
+
+// ============================================
+// REPOSITORY-BASED VALIDATION (for testing)
+// ============================================
+
+use crate::services::repositories::{PatRepository, PatData};
+
+/// Validate a PAT token using the repository trait (testable)
+pub async fn validate_pat_with_repo<R: PatRepository>(
+    repo: &R,
+    token: &str,
+) -> Result<Option<PatData>, crate::services::repositories::RepoError> {
+    // Must start with correct prefix
+    if !token.starts_with(TOKEN_PREFIX) {
+        return Ok(None);
+    }
+
+    let token_hash = hash_token(token);
+    let result = repo.find_by_hash(&token_hash).await?;
+
+    if let Some(ref pat) = result {
+        // Check expiration
+        if let Some(expires_at) = pat.expires_at {
+            if expires_at < chrono::Utc::now() {
+                return Ok(None);
+            }
+        }
+
+        // Update last_used_at (ignore errors)
+        let _ = repo.update_last_used(pat.id).await;
+    }
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+    use crate::services::repositories::mocks::MockPatRepository;
+
+    #[tokio::test]
+    async fn validate_rejects_token_without_prefix() {
+        let repo = MockPatRepository::new();
+        let result = validate_pat_with_repo(&repo, "invalid_token").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn validate_returns_none_when_not_found() {
+        let repo = MockPatRepository::new();
+        let token = format!("{}test123", TOKEN_PREFIX);
+        let result = validate_pat_with_repo(&repo, &token).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn validate_returns_pat_when_found() {
+        let pat = PatData {
+            id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            org_id: Uuid::new_v4(),
+            name: "Test PAT".to_string(),
+            scopes: vec!["mcp:server:read".to_string()],
+            expires_at: None,
+        };
+        let repo = MockPatRepository::with_pat(pat.clone());
+        
+        let token = format!("{}test123", TOKEN_PREFIX);
+        let result = validate_pat_with_repo(&repo, &token).await.unwrap();
+        
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().name, "Test PAT");
+    }
+
+    #[tokio::test]
+    async fn validate_rejects_expired_token() {
+        let pat = PatData {
+            id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            org_id: Uuid::new_v4(),
+            name: "Expired PAT".to_string(),
+            scopes: vec![],
+            expires_at: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+        };
+        let repo = MockPatRepository::with_pat(pat);
+        
+        let token = format!("{}test123", TOKEN_PREFIX);
+        let result = validate_pat_with_repo(&repo, &token).await.unwrap();
+        
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn validate_accepts_non_expired_token() {
+        let pat = PatData {
+            id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            org_id: Uuid::new_v4(),
+            name: "Valid PAT".to_string(),
+            scopes: vec!["mcp:tool:execute".to_string()],
+            expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+        };
+        let repo = MockPatRepository::with_pat(pat);
+        
+        let token = format!("{}test123", TOKEN_PREFIX);
+        let result = validate_pat_with_repo(&repo, &token).await.unwrap();
+        
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().name, "Valid PAT");
+    }
+}
