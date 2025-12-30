@@ -6,30 +6,32 @@ import { createPinia, setActivePinia } from 'pinia'
 const mockParams = { name: 'test-server' }
 vi.mock('vue-router', () => ({
     useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-    useRoute: () => ({ params: mockParams }),
+    useRoute: () => ({ params: mockParams, query: {} }),
     RouterLink: { template: '<a><slot /></a>' }
 }))
 
 // Mock stores
-const mockServer = {
-    name: 'test-server',
-    url: 'http://localhost:3000',
-    status: 'healthy',
-    transport: 'http',
-    enabled: true,
-    auth_type: 'none',
-    auth: { oauth: null, api_key: null, bearer_token: null }
-}
-vi.mock('@/stores/servers', () => ({
-    useServersStore: vi.fn(() => ({
-        servers: [mockServer],
-        getServerByName: vi.fn(() => mockServer),
-        fetchServer: vi.fn().mockResolvedValue({}),
-        fetchServers: vi.fn().mockResolvedValue([]),
-        updateServer: vi.fn().mockResolvedValue({}),
-        deleteServer: vi.fn().mockResolvedValue({}),
-    }))
-}))
+vi.mock('@/stores/servers', () => {
+    const mockServer = {
+        name: 'test-server',
+        url: 'http://localhost:3000',
+        status: 'healthy',
+        transport: 'http',
+        enabled: true,
+        auth_type: 'none',
+        auth: { oauth: null, api_key: null, bearer_token: null }
+    }
+    return {
+        useServersStore: vi.fn(() => ({
+            servers: [mockServer],
+            getServerByName: vi.fn(() => mockServer),
+            fetchServer: vi.fn().mockResolvedValue(mockServer),
+            fetchServers: vi.fn().mockResolvedValue([mockServer]),
+            updateServer: vi.fn().mockResolvedValue({}),
+            deleteServer: vi.fn().mockResolvedValue({}),
+        }))
+    }
+})
 
 // Import after mocks
 import ServerDetails from '@/views/dashboard/ServerDetails.vue'

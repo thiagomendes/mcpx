@@ -26,8 +26,15 @@ vi.mock('@/stores/metrics', () => ({
     useMetricsStore: vi.fn(() => ({
         metrics: null,
         loading: false,
-        fetchMetrics: vi.fn(),
+        error: null,
+        summary: null,
+        todayMetrics: null,
+        byTarget: [],
+        fetchMetrics: vi.fn().mockResolvedValue({}),
         queryMetrics: vi.fn().mockResolvedValue([]),
+        fetchByTarget: vi.fn().mockResolvedValue([]),
+        fetchTodayMetrics: vi.fn().mockResolvedValue({}),
+        fetchSummary: vi.fn().mockResolvedValue({}),
     }))
 }))
 
