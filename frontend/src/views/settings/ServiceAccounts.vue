@@ -34,8 +34,10 @@
             class="flex items-center justify-between py-4 first:pt-0 last:pb-0"
           >
             <div class="flex items-center gap-4">
-              <div class="w-10 h-10 rounded-lg flex items-center justify-center"
-                   :class="account.enabled ? 'bg-emerald-500/20' : 'bg-gray-500/20'">
+              <div
+                class="w-10 h-10 rounded-lg flex items-center justify-center"
+                :class="account.enabled ? 'bg-emerald-500/20' : 'bg-gray-500/20'"
+              >
                 <CogIcon class="w-5 h-5" :class="account.enabled ? 'text-emerald-400' : 'text-gray-500'" />
               </div>
               <div>
@@ -128,16 +130,20 @@
             <div class="mb-6">
               <label class="block text-sm font-medium text-gray-400 mb-2">Permissions</label>
               <div class="space-y-3">
-                <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
-                       :class="createForm.accessLevel === 'full' ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 hover:border-gray-600'">
+                <label
+                  class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+                  :class="createForm.accessLevel === 'full' ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 hover:border-gray-600'"
+                >
                   <input type="radio" v-model="createForm.accessLevel" value="full" class="mt-1" />
                   <div>
                     <div class="font-medium">Full Access</div>
                     <div class="text-sm text-gray-500">Can list and execute tools</div>
                   </div>
                 </label>
-                <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
-                       :class="createForm.accessLevel === 'read' ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 hover:border-gray-600'">
+                <label
+                  class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+                  :class="createForm.accessLevel === 'read' ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 hover:border-gray-600'"
+                >
                   <input type="radio" v-model="createForm.accessLevel" value="read" class="mt-1" />
                   <div>
                     <div class="font-medium">Read Only</div>

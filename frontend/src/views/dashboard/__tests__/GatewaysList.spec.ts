@@ -163,6 +163,7 @@ describe('GatewaysList.vue', () => {
 
         // Check modal content (may need DOM update)
         await wrapper.vm.$nextTick()
-        expect(wrapper.text()).toContain('Create Gateway') || expect(wrapper.text()).toContain('New Gateway')
+        const text = wrapper.text()
+        expect(text.includes('Create Gateway') || text.includes('New Gateway')).toBe(true)
     })
 })

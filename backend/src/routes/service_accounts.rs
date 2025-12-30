@@ -270,7 +270,7 @@ pub async fn update_service_account(
         .bind(&payload.name)
         .bind(&payload.description)
         .bind(&scopes_json)
-        .bind(&payload.enabled)
+        .bind(payload.enabled)
         .bind(account_id)
         .bind(org_id)
         .execute(&state.db.pool)
@@ -433,6 +433,7 @@ mod tests {
 use crate::services::repositories::{ServiceAccountRepository, ServiceAccountData};
 
 /// Validate service account credentials using repository trait (testable)
+#[allow(dead_code)]
 pub async fn validate_credentials_with_repo<R: ServiceAccountRepository>(
     repo: &R,
     client_id: &str,

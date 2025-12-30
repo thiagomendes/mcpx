@@ -2,6 +2,10 @@
 //!
 //! This module provides trait-based abstractions for database operations,
 //! enabling mocking in tests without requiring a real PostgreSQL connection.
+//!
+//! Note: Many items are currently only used in tests, hence the allow(dead_code).
+
+#![allow(dead_code)]
 
 use async_trait::async_trait;
 use uuid::Uuid;

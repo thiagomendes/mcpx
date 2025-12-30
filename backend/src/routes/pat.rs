@@ -362,6 +362,7 @@ mod tests {
 use crate::services::repositories::{PatRepository, PatData};
 
 /// Validate a PAT token using the repository trait (testable)
+#[allow(dead_code)]
 pub async fn validate_pat_with_repo<R: PatRepository>(
     repo: &R,
     token: &str,

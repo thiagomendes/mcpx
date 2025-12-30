@@ -132,7 +132,7 @@ describe('ServersList utility functions', () => {
             'disabled': 'Disabled',
         }
 
-        Object.entries(statusMapping).forEach(([input, expected]) => {
+        Object.entries(statusMapping).forEach(([_input, expected]) => {
             // The actual implementation would be tested via the component
             expect(expected).toBeTruthy()
         })
@@ -145,7 +145,7 @@ describe('ServersList utility functions', () => {
             'pending_auth': 'badge badge-warning',
         }
 
-        Object.entries(classMapping).forEach(([input, expected]) => {
+        Object.entries(classMapping).forEach(([_input, expected]) => {
             expect(expected).toBeTruthy()
         })
     })

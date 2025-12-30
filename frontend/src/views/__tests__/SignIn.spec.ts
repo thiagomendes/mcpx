@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, shallowMount } from '@vue/test-utils'
+import { shallowMount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 // Mock vue-router
@@ -23,7 +23,7 @@ vi.mock('@/lib/identityProviders', () => ({
 
 // Import after mocks
 import SignIn from '@/views/SignIn.vue'
-import { loginWithProvider, getEnabledProviders } from '@/lib/identityProviders'
+import { loginWithProvider } from '@/lib/identityProviders'
 
 describe('SignIn.vue', () => {
     beforeEach(() => {
