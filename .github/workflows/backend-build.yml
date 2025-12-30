@@ -90,14 +90,21 @@ jobs:
           echo "## 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if cargo test --all-features 2>&1 | tee test_output.txt; then
+            # Extract test counts from output
+            PASSED=$(grep -oE '[0-9]+ passed' test_output.txt | tail -1 | grep -oE '[0-9]+' || echo "0")
+            FAILED=$(grep -oE '[0-9]+ failed' test_output.txt | tail -1 | grep -oE '[0-9]+' || echo "0")
             echo "✅ **All tests passed!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- Passed: $PASSED" >> $GITHUB_STEP_SUMMARY
             echo "test_status=success" >> $GITHUB_OUTPUT
+            echo "test_count=$PASSED" >> $GITHUB_OUTPUT
           else
             echo "❌ **Some tests failed:**" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             tail -50 test_output.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "test_status=failure" >> $GITHUB_OUTPUT
+            echo "test_count=0" >> $GITHUB_OUTPUT
           fi
 
       - name: Run Coverage
@@ -110,9 +117,15 @@ jobs:
           echo "## 📊 Test Coverage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           cargo tarpaulin --out Xml --out Html --skip-clean 2>&1 | tee coverage_output.txt || true
-          COVERAGE=$(grep -oP 'coverage: \K[0-9.]+' coverage_output.txt | tail -1 || echo "N/A")
+          # Tarpaulin outputs: "XX.XX% coverage, Y/Z lines covered"
+          COVERAGE=$(grep -oE '[0-9]+\.[0-9]+% coverage' coverage_output.txt | tail -1 | grep -oE '[0-9]+\.[0-9]+' || echo "N/A")
           echo "**Coverage: ${COVERAGE}%**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          # Show covered lines if available
+          LINES_INFO=$(grep -oE '[0-9]+/[0-9]+ lines covered' coverage_output.txt | tail -1 || echo "")
+          if [ -n "$LINES_INFO" ]; then
+            echo "Lines: $LINES_INFO" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "coverage_percent=${COVERAGE}" >> $GITHUB_OUTPUT
 
       - name: Upload coverage report
