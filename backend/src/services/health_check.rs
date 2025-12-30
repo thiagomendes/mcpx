@@ -257,24 +257,205 @@ async fn get_access_token(db: &Database, server_id: Uuid, encryption_key: &str) 
     }
 }
 
+/// Discover OAuth endpoints from the server's well-known metadata (for oauth_auto mode)
+async fn discover_oauth_endpoints(server_url: &str) -> Result<(String, String), String> {
+    let client = reqwest::Client::new();
+    
+    // Parse the server URL to get the base
+    let base_url = server_url.trim_end_matches("/mcp").trim_end_matches('/');
+    
+    // 1. Fetch Protected Resource Metadata to get authorization server
+    let prm_url = format!("{}/.well-known/oauth-protected-resource", base_url);
+    tracing::debug!("Fetching OAuth protected resource metadata from: {}", prm_url);
+    
+    let prm_response = client.get(&prm_url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch protected resource metadata: {}", e))?;
+    
+    if !prm_response.status().is_success() {
+        return Err(format!("Protected resource metadata returned {}", prm_response.status()));
+    }
+    
+    #[derive(serde::Deserialize)]
+    struct ProtectedResourceMetadata {
+        authorization_servers: Vec<String>,
+    }
+    
+    let prm: ProtectedResourceMetadata = prm_response.json().await
+        .map_err(|e| format!("Failed to parse protected resource metadata: {}", e))?;
+    
+    let auth_server = prm.authorization_servers.first()
+        .ok_or("No authorization servers found in metadata")?;
+    
+    let auth_server_base = auth_server.trim_end_matches('/');
+    
+    // 2. Fetch Authorization Server Metadata to get token endpoint
+    let asm_url = format!("{}/.well-known/oauth-authorization-server", auth_server_base);
+    tracing::debug!("Fetching OAuth authorization server metadata from: {}", asm_url);
+    
+    let asm_response = client.get(&asm_url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch authorization server metadata: {}", e))?;
+    
+    if !asm_response.status().is_success() {
+        return Err(format!("Authorization server metadata returned {}", asm_response.status()));
+    }
+    
+    #[derive(serde::Deserialize)]
+    struct AuthServerMetadata {
+        token_endpoint: String,
+        #[allow(dead_code)]
+        grant_types_supported: Option<Vec<String>>,
+    }
+    
+    let asm: AuthServerMetadata = asm_response.json().await
+        .map_err(|e| format!("Failed to parse authorization server metadata: {}", e))?;
+    
+    tracing::info!("Discovered token endpoint: {}", asm.token_endpoint);
+    
+    // For oauth_auto with PKCE, client_id is typically a registered client
+    // We use a placeholder since the token was obtained with dynamic registration
+    // The refresh_token itself carries the client binding
+    let client_id = "mcpx-gateway".to_string();
+    
+    Ok((asm.token_endpoint, client_id))
+}
+
 async fn try_refresh_token(db: &Database, server_id: Uuid, encryption_key: &str) -> Result<String, String> {
-    let row: Option<(Option<String>,)> = sqlx::query_as(
-        "SELECT refresh_token_encrypted FROM oauth_tokens WHERE server_id = $1 LIMIT 1"
+    // 1. Fetch refresh token, user_id, and dynamic_client_id from oauth_tokens
+    let token_row: Option<(String, Uuid, Option<String>)> = sqlx::query_as(
+        "SELECT refresh_token_encrypted, user_id, dynamic_client_id FROM oauth_tokens WHERE server_id = $1 AND refresh_token_encrypted IS NOT NULL LIMIT 1"
     )
     .bind(server_id)
     .fetch_optional(&db.pool)
     .await
     .map_err(|e| format!("Failed to fetch refresh token: {}", e))?;
     
-    let refresh_encrypted = row
-        .and_then(|(r,)| r)
-        .ok_or("No refresh token available")?;
+    let (refresh_encrypted, user_id, dynamic_client_id) = token_row
+        .ok_or("No refresh token available for this server")?;
     
+    // 2. Fetch server OAuth config (token_url, client_id, and server URL for discovery)
+    let server_row: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(
+        "SELECT oauth_token_url, oauth_client_id, url FROM servers WHERE id = $1"
+    )
+    .bind(server_id)
+    .fetch_optional(&db.pool)
+    .await
+    .map_err(|e| format!("Failed to fetch server config: {}", e))?;
+    
+    let (configured_token_url, configured_client_id, server_url) = server_row
+        .ok_or("Server not found")?;
+    
+    // 3. Discover token_url if not configured (oauth_auto mode)
+    let token_url = match &configured_token_url {
+        Some(url) if !url.is_empty() => url.clone(),
+        _ => {
+            // Discover token_url from well-known metadata
+            let (discovered_token_url, _) = discover_oauth_endpoints(&server_url).await?;
+            discovered_token_url
+        }
+    };
+    
+    // Use dynamic_client_id from oauth_tokens if available, otherwise use server config
+    let effective_client_id = dynamic_client_id
+        .or(configured_client_id)
+        .filter(|id| !id.is_empty());
+    
+    // 3. Decrypt refresh token
     let key = crypto::derive_key(encryption_key);
-    let _refresh_token = crypto::decrypt(&refresh_encrypted, &key)
+    let refresh_token = crypto::decrypt(&refresh_encrypted, &key)
         .map_err(|e| format!("Failed to decrypt refresh token: {}", e))?;
     
-    Err("Token refresh not implemented yet - user must re-authorize".to_string())
+    tracing::info!("Attempting OAuth token refresh for server {} (client_id: {:?})", server_id, effective_client_id);
+    
+    // 4. Call token endpoint with refresh_token grant
+    // Some OAuth servers (public clients) don't require client_id
+    let client = reqwest::Client::new();
+    let token_response = if let Some(ref cid) = effective_client_id {
+        client.post(&token_url)
+            .form(&[
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token.as_str()),
+                ("client_id", cid.as_str()),
+            ])
+            .send()
+            .await
+            .map_err(|e| format!("Failed to call token endpoint: {}", e))?
+    } else {
+        // Try without client_id (public client / PKCE flow)
+        client.post(&token_url)
+            .form(&[
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token.as_str()),
+            ])
+            .send()
+            .await
+            .map_err(|e| format!("Failed to call token endpoint: {}", e))?
+    };
+    
+    if !token_response.status().is_success() {
+        let status = token_response.status();
+        let body = token_response.text().await.unwrap_or_default();
+        tracing::warn!("Token refresh failed: status={}, body={}", status, body);
+        return Err(format!("Token refresh failed with status {}: {}", status, body));
+    }
+    
+    // 5. Parse response
+    #[derive(serde::Deserialize)]
+    struct TokenResponse {
+        access_token: String,
+        refresh_token: Option<String>,
+        expires_in: Option<i64>,
+        #[allow(dead_code)]
+        token_type: Option<String>,
+    }
+    
+    let tokens: TokenResponse = token_response.json().await
+        .map_err(|e| format!("Failed to parse token response: {}", e))?;
+    
+    // 6. Encrypt new tokens
+    let new_access_encrypted = crypto::encrypt(&tokens.access_token, &key)
+        .map_err(|e| format!("Failed to encrypt new access token: {}", e))?;
+    
+    let new_refresh_encrypted = match &tokens.refresh_token {
+        Some(rt) => Some(crypto::encrypt(rt, &key)
+            .map_err(|e| format!("Failed to encrypt new refresh token: {}", e))?),
+        None => None, // Keep existing refresh token if not returned
+    };
+    
+    let expires_at = tokens.expires_in.map(|secs| Utc::now() + chrono::Duration::seconds(secs));
+    
+    // 7. Update oauth_tokens in database
+    if let Some(ref new_refresh) = new_refresh_encrypted {
+        sqlx::query(
+            "UPDATE oauth_tokens SET access_token_encrypted = $1, refresh_token_encrypted = $2, expires_at = $3, updated_at = NOW() WHERE server_id = $4 AND user_id = $5"
+        )
+        .bind(&new_access_encrypted)
+        .bind(new_refresh)
+        .bind(expires_at)
+        .bind(server_id)
+        .bind(user_id)
+        .execute(&db.pool)
+        .await
+        .map_err(|e| format!("Failed to update tokens in database: {}", e))?;
+    } else {
+        sqlx::query(
+            "UPDATE oauth_tokens SET access_token_encrypted = $1, expires_at = $2, updated_at = NOW() WHERE server_id = $3 AND user_id = $4"
+        )
+        .bind(&new_access_encrypted)
+        .bind(expires_at)
+        .bind(server_id)
+        .bind(user_id)
+        .execute(&db.pool)
+        .await
+        .map_err(|e| format!("Failed to update tokens in database: {}", e))?;
+    }
+    
+    tracing::info!("Successfully refreshed OAuth token for server {}", server_id);
+    
+    Ok(tokens.access_token)
 }
 
 async fn test_mcp_connection(server_url: &str, auth_header_name: Option<&str>, auth_header_value: Option<&str>) -> Result<(), String> {

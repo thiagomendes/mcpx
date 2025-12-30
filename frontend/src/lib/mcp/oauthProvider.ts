@@ -31,11 +31,11 @@ export class McpxOAuthProvider implements OAuthClientProvider {
   private _tokens?: OAuthTokens;
   private _clientInformation?: OAuthClientInformationMixed;
   private _codeVerifier?: string;
-  private _onComplete?: (tokens: OAuthTokens) => Promise<void>;
+  private _onComplete?: (tokens: OAuthTokens, clientId?: string) => Promise<void>;
 
   constructor(
     private config: McpxOAuthConfig,
-    onComplete?: (tokens: OAuthTokens) => Promise<void>
+    onComplete?: (tokens: OAuthTokens, clientId?: string) => Promise<void>
   ) {
     this._onComplete = onComplete;
   }
@@ -84,7 +84,9 @@ export class McpxOAuthProvider implements OAuthClientProvider {
 
 
     if (this._onComplete) {
-      await this._onComplete(tokens);
+      // Pass client_id from client information for future token refresh
+      const clientId = (this._clientInformation as { client_id?: string })?.client_id;
+      await this._onComplete(tokens, clientId);
     }
 
 
