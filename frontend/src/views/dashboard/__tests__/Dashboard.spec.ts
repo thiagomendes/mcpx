@@ -27,6 +27,7 @@ vi.mock('@/stores/metrics', () => ({
         metrics: null,
         loading: false,
         fetchMetrics: vi.fn(),
+        queryMetrics: vi.fn().mockResolvedValue([]),
     }))
 }))
 

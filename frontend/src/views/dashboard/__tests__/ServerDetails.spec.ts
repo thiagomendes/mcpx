@@ -11,10 +11,19 @@ vi.mock('vue-router', () => ({
 }))
 
 // Mock stores
+const mockServer = {
+    name: 'test-server',
+    url: 'http://localhost:3000',
+    status: 'healthy',
+    transport: 'http',
+    enabled: true,
+    auth_type: 'none',
+    auth: { oauth: null, api_key: null, bearer_token: null }
+}
 vi.mock('@/stores/servers', () => ({
     useServersStore: vi.fn(() => ({
-        servers: [{ name: 'test-server', url: 'http://localhost:3000', status: 'healthy' }],
-        getServerByName: vi.fn(() => ({ name: 'test-server', url: 'http://localhost:3000', status: 'healthy' })),
+        servers: [mockServer],
+        getServerByName: vi.fn(() => mockServer),
         fetchServer: vi.fn().mockResolvedValue({}),
         fetchServers: vi.fn().mockResolvedValue([]),
         updateServer: vi.fn().mockResolvedValue({}),
