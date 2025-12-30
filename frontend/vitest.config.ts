@@ -8,9 +8,18 @@ export default defineConfig({
         environment: 'happy-dom',
         globals: true,
         coverage: {
-            provider: 'v8',
+            provider: 'istanbul',
             reporter: ['text', 'html'],
-            include: ['src/components/**/*.vue'],
+            include: [
+                'src/components/**/*.vue',
+                'src/stores/**/*.ts',
+                'src/views/**/*.vue',
+            ],
+            exclude: [
+                'src/**/*.spec.ts',
+                'src/**/*.test.ts',
+                'node_modules',
+            ],
         },
     },
     resolve: {

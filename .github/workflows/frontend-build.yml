@@ -1,0 +1,150 @@
+name: Frontend Build & Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for running this workflow'
+        required: false
+        default: 'Manual build'
+
+jobs:
+  build:
+    name: Build, Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run ESLint
+        id: eslint
+        working-directory: frontend
+        run: |
+          echo "## 🔍 ESLint Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if npm run lint 2>&1 | tee eslint_output.txt; then
+            WARNINGS=$(grep -c "warning" eslint_output.txt || echo "0")
+            ERRORS=$(grep -c "error" eslint_output.txt || echo "0")
+            echo "✅ **Lint passed!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- Errors: ${ERRORS}" >> $GITHUB_STEP_SUMMARY
+            echo "- Warnings: ${WARNINGS}" >> $GITHUB_STEP_SUMMARY
+            echo "eslint_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ **ESLint found issues:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat eslint_output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "eslint_status=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run TypeScript Check
+        working-directory: frontend
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📝 TypeScript Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if npx vue-tsc --noEmit 2>&1 | tee tsc_output.txt; then
+            echo "✅ **No TypeScript errors**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **TypeScript issues found:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -30 tsc_output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+        continue-on-error: true
+
+      - name: Run Tests with Coverage
+        id: tests
+        working-directory: frontend
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if npm run test:coverage 2>&1 | tee test_output.txt; then
+            echo "✅ **All tests passed!**" >> $GITHUB_STEP_SUMMARY
+            echo "test_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ **Some tests failed:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -30 test_output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "test_status=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract Coverage
+        id: coverage
+        working-directory: frontend
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f coverage/coverage-summary.json ]; then
+            LINES=$(cat coverage/coverage-summary.json | jq -r '.total.lines.pct // "N/A"')
+            STATEMENTS=$(cat coverage/coverage-summary.json | jq -r '.total.statements.pct // "N/A"')
+            BRANCHES=$(cat coverage/coverage-summary.json | jq -r '.total.branches.pct // "N/A"')
+            FUNCTIONS=$(cat coverage/coverage-summary.json | jq -r '.total.functions.pct // "N/A"')
+            echo "| Metric | Coverage |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Lines | ${LINES}% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Statements | ${STATEMENTS}% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Branches | ${BRANCHES}% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Functions | ${FUNCTIONS}% |" >> $GITHUB_STEP_SUMMARY
+            echo "coverage_lines=${LINES}" >> $GITHUB_OUTPUT
+          else
+            # Fallback: extract from console output
+            COVERAGE=$(grep "All files" test_output.txt | awk '{print $4}' || echo "N/A")
+            echo "**Lines Coverage: ${COVERAGE}%**" >> $GITHUB_STEP_SUMMARY
+            echo "coverage_lines=${COVERAGE}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-report
+          path: frontend/coverage/
+          if-no-files-found: ignore
+
+      - name: Build Production
+        working-directory: frontend
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🏗️ Production Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if npm run build 2>&1 | tee build_output.txt; then
+            echo "✅ **Build successful!**" >> $GITHUB_STEP_SUMMARY
+            BUILD_SIZE=$(du -sh dist 2>/dev/null | cut -f1 || echo "N/A")
+            echo "Build size: ${BUILD_SIZE}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Build failed:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -20 build_output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Final Summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## 📋 Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ESLint | ${{ steps.eslint.outputs.eslint_status == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ steps.tests.outputs.test_status == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage | ${{ steps.coverage.outputs.coverage_lines }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Reason:** ${{ github.event.inputs.reason }}" >> $GITHUB_STEP_SUMMARY

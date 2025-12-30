@@ -370,3 +370,139 @@ pub async fn remove_server_from_gateway(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+// ============================================
+// LIST GATEWAY TOOLS (Admin Endpoint)
+// ============================================
+
+#[derive(Debug, Serialize)]
+pub struct GatewayToolResponse {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+const SQL_GET_GATEWAY_SERVERS: &str = r#"
+    SELECT s.id, s.name, s.url, s.auth_type
+    FROM gateway_servers gs
+    JOIN servers s ON s.id = gs.server_id
+    WHERE gs.gateway_id = $1
+    ORDER BY gs.priority
+"#;
+
+const SQL_SELECT_CREDENTIAL: &str = r#"
+    SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2
+"#;
+
+#[derive(Debug, sqlx::FromRow)]
+struct ServerRowForTools {
+    id: Uuid,
+    name: String,
+    url: String,
+    auth_type: Option<String>,
+}
+
+/// GET /api/gateways/:slug/tools - List tools from all servers in gateway (JWT auth)
+pub async fn list_gateway_tools(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(slug): Path<String>,
+) -> Result<Json<Vec<GatewayToolResponse>>, (StatusCode, String)> {
+    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+
+    // Get gateway ID
+    let gateway_id: Option<(Uuid,)> = sqlx::query_as(SQL_GET_GATEWAY_ID)
+        .bind(&slug)
+        .bind(org_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
+    let gateway_id = gateway_id.ok_or((StatusCode::NOT_FOUND, "Gateway not found".to_string()))?.0;
+
+    // Get all servers in gateway
+    let servers: Vec<ServerRowForTools> = sqlx::query_as(SQL_GET_GATEWAY_SERVERS)
+        .bind(gateway_id)
+        .fetch_all(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
+    if servers.is_empty() {
+        return Ok(Json(vec![]));
+    }
+
+    // Aggregate tools from all servers
+    let mut all_tools: Vec<GatewayToolResponse> = Vec::new();
+
+    for server in &servers {
+        // Build auth headers for server
+        let (auth_header_name, auth_header_value) = get_server_auth_header(&state, server).await;
+        
+        // Fetch tools from server using MCP client
+        match crate::services::mcp_client::list_tools_from_server(
+            &server.url,
+            auth_header_name.as_deref(),
+            auth_header_value.as_deref(),
+        ).await {
+            Ok(tools) => {
+                for tool in tools {
+                    all_tools.push(GatewayToolResponse {
+                        name: tool.name,
+                        description: tool.description,
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch tools from server {}: {}", server.name, e);
+            }
+        }
+    }
+
+    Ok(Json(all_tools))
+}
+
+/// Get auth headers for a server (uses same pattern as proxy.rs)
+async fn get_server_auth_header(state: &AppState, server: &ServerRowForTools) -> (Option<String>, Option<String>) {
+    use crate::services::crypto;
+    
+    match server.auth_type.as_deref() {
+        Some("api_key") => {
+            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
+                .bind(server.id)
+                .bind("api_key")
+                .fetch_optional(&state.db.pool)
+                .await
+                .ok()
+                .flatten();
+            
+            if let Some((encrypted,)) = row {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                match crypto::decrypt(&encrypted, &key) {
+                    Ok(api_key) => (Some("X-API-Key".to_string()), Some(api_key)),
+                    Err(_) => (None, None)
+                }
+            } else {
+                (None, None)
+            }
+        }
+        Some("bearer") => {
+            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
+                .bind(server.id)
+                .bind("bearer")
+                .fetch_optional(&state.db.pool)
+                .await
+                .ok()
+                .flatten();
+            
+            if let Some((encrypted,)) = row {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                match crypto::decrypt(&encrypted, &key) {
+                    Ok(token) => (Some("Authorization".to_string()), Some(format!("Bearer {}", token))),
+                    Err(_) => (None, None)
+                }
+            } else {
+                (None, None)
+            }
+        }
+        _ => (None, None)
+    }
+}

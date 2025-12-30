@@ -189,6 +189,7 @@ import {
   ChevronDownIcon,
 } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
+import api from '@/api/client'
 
 interface GatewayTool {
   name: string
@@ -222,7 +223,10 @@ const mcpConfig = computed(() => {
   return JSON.stringify({
     "mcpServers": {
       [gateway.value.slug]: {
-        "url": gateway.value.proxy_url
+        "url": gateway.value.proxy_url,
+        "headers": {
+          "Authorization": "Bearer <YOUR_ACCESS_TOKEN>"
+        }
       }
     }
   }, null, 2)
@@ -257,27 +261,9 @@ async function loadTools() {
   toolsError.value = null
   
   try {
-    const response = await fetch(gateway.value.proxy_url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'tools/list',
-        params: {},
-        id: 1
-      })
-    })
-    
-    const text = await response.text()
-    const lines = text.split('\n')
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = JSON.parse(line.slice(6))
-        if (data.result?.tools) {
-          tools.value = data.result.tools
-        }
-      }
-    }
+    // Use admin API (JWT authenticated) instead of proxy URL (PAT required)
+    const response = await api.get(`/gateways/${gateway.value.slug}/tools`)
+    tools.value = response.data
   } catch {
     toolsError.value = 'Failed to fetch tools from gateway'
   } finally {

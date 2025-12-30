@@ -20,6 +20,11 @@ const router = createRouter({
             component: () => import('@/views/SignIn.vue'),
         },
         {
+            path: '/account-deleted',
+            name: 'account-deleted',
+            component: () => import('@/views/AccountDeleted.vue'),
+        },
+        {
             path: '/dashboard',
             name: 'dashboard',
             component: () => import('@/views/dashboard/Dashboard.vue'),
@@ -77,6 +82,18 @@ const router = createRouter({
             path: '/settings/members',
             name: 'members',
             component: () => import('@/views/settings/Members.vue'),
+            meta: { requiresAuth: true },
+        },
+        {
+            path: '/settings/tokens',
+            name: 'tokens',
+            component: () => import('@/views/settings/Tokens.vue'),
+            meta: { requiresAuth: true },
+        },
+        {
+            path: '/settings/service-accounts',
+            name: 'service-accounts',
+            component: () => import('@/views/settings/ServiceAccounts.vue'),
             meta: { requiresAuth: true },
         },
         {

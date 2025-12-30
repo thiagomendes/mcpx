@@ -43,9 +43,6 @@
             <span :class="statusBadgeClass(server.status)">
               {{ statusLabel(server.status) }}
             </span>
-            <span v-if="getServerRequests(server.id) > 0" class="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded-full">
-              {{ getServerRequests(server.id) }} reqs today
-            </span>
           </div>
           <div class="text-gray-400 text-sm font-mono">{{ server.url }}</div>
         </div>
@@ -75,7 +72,6 @@
 import { onMounted } from 'vue'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import { useServersStore } from '@/stores/servers'
-import { useMetricsStore } from '@/stores/metrics'
 import { 
   ServerIcon, 
   PlusIcon, 
@@ -84,18 +80,9 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const serversStore = useServersStore()
-const metricsStore = useMetricsStore()
-
-function getServerRequests(serverId: string): number {
-  const metric = metricsStore.targetMetrics.find(
-    m => m.target_id === serverId && m.target_type === 'server'
-  )
-  return metric?.total ?? 0
-}
 
 onMounted(() => {
   serversStore.fetchServers()
-  metricsStore.fetchByTarget(24)
 })
 
 function statusLabel(status: string): string {

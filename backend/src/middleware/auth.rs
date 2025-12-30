@@ -30,6 +30,8 @@ pub async fn require_auth(
 pub struct AuthUser {
     pub user_id: uuid::Uuid,
     pub email: String,
+    pub org_id: uuid::Uuid,
+    pub org_slug: String,
 }
 
 impl From<Claims> for AuthUser {
@@ -37,6 +39,8 @@ impl From<Claims> for AuthUser {
         Self {
             user_id: uuid::Uuid::parse_str(&claims.sub).unwrap_or_default(),
             email: claims.email,
+            org_id: uuid::Uuid::parse_str(&claims.org_id).unwrap_or_default(),
+            org_slug: claims.org_slug,
         }
     }
 }

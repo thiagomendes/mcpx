@@ -167,6 +167,7 @@ async fn main() {
         .route("/api/gateways/:slug", delete(routes::gateways::delete_gateway))
         .route("/api/gateways/:slug/servers", post(routes::gateways::add_server_to_gateway))
         .route("/api/gateways/:slug/servers/:name", delete(routes::gateways::remove_server_from_gateway))
+        .route("/api/gateways/:slug/tools", get(routes::gateways::list_gateway_tools))
     
         // Metrics
         .route("/api/metrics/today", get(routes::metrics::get_today))
@@ -196,6 +197,23 @@ async fn main() {
         .route("/api/orgs/members/:user_id", delete(routes::orgs::remove_member))
         .route("/api/orgs/members/invite", post(routes::orgs::invite_member))
         .route("/api/orgs/join/:token", get(routes::orgs::get_invite_details).post(routes::orgs::join_org))
+    
+        // Account management
+        .route("/api/account", delete(routes::orgs::delete_account))
+        .route("/api/account/deletion-preview", get(routes::orgs::preview_account_deletion))
+    
+        // Personal Access Tokens
+        .route("/api/tokens", get(routes::pat::list_tokens))
+        .route("/api/tokens", post(routes::pat::create_token))
+        .route("/api/tokens/:id", delete(routes::pat::delete_token))
+
+        // Service Accounts (M2M)
+        .route("/api/service-accounts", get(routes::service_accounts::list_service_accounts))
+        .route("/api/service-accounts", post(routes::service_accounts::create_service_account))
+        .route("/api/service-accounts/:id", get(routes::service_accounts::get_service_account))
+        .route("/api/service-accounts/:id", put(routes::service_accounts::update_service_account))
+        .route("/api/service-accounts/:id", delete(routes::service_accounts::delete_service_account))
+        .route("/api/auth/token", post(routes::auth::oauth_token))
     
         // MCP Proxy - now uses org_slug instead of user_id
         .route("/mcp/:org_slug/:server_name", post(routes::proxy::mcp_proxy))

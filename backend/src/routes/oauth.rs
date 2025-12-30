@@ -57,7 +57,7 @@ pub async fn store_oauth_tokens(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let server_id: Option<Uuid> = sqlx::query_scalar(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(auth_user.user_id)
+        .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -100,7 +100,7 @@ pub async fn oauth_status(
 ) -> Result<Json<OAuthStatusResponse>, (StatusCode, String)> {
     let server_id: Option<Uuid> = sqlx::query_scalar(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(auth_user.user_id)
+        .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -134,7 +134,7 @@ pub async fn revoke_oauth(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let server_id: Option<Uuid> = sqlx::query_scalar(SQL_SELECT_SERVER_ID)
         .bind(&server_name)
-        .bind(auth_user.user_id)
+        .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;

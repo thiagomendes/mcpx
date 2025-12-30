@@ -355,3 +355,66 @@ pub async fn remove_member(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// DELETE /api/account - Delete user's own account
+/// This will:
+/// - Delete all organizations where user is the sole owner
+/// - Remove user from all other organizations
+/// - Delete the user account
+pub async fn delete_account(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let (user_id, _org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+
+    // Perform account deletion
+    crate::services::org::OrgService::delete_user_account(&state.db.pool, user_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
+    tracing::info!(user_id = %user_id, "User account deleted via API");
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Serialize)]
+pub struct AccountDeletionPreview {
+    pub user_email: String,
+    pub orgs_to_delete: Vec<OrgToDelete>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrgToDelete {
+    pub id: Uuid,
+    pub name: String,
+    pub is_personal: bool,
+}
+
+/// GET /api/account/deletion-preview - Preview what will be deleted
+pub async fn preview_account_deletion(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<AccountDeletionPreview>, (StatusCode, String)> {
+    let (user_id, _org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+
+    // Get user email
+    let user = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
+    // Get orgs that will be deleted
+    let orgs = crate::services::org::OrgService::preview_account_deletion(&state.db.pool, user_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+
+    Ok(Json(AccountDeletionPreview {
+        user_email: user,
+        orgs_to_delete: orgs.into_iter().map(|o| OrgToDelete {
+            id: o.id,
+            name: o.name,
+            is_personal: o.is_personal,
+        }).collect(),
+    }))
+}

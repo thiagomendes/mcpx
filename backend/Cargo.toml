@@ -40,6 +40,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2.0"
 anyhow = "1.0"
+async-trait = "0.1"
 
 # Security
 argon2 = "0.5"
@@ -50,3 +51,8 @@ sha2 = "0.10"
 urlencoding = "2.1"
 regex = "1.11"
 url = "2.5"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tower = { version = "0.5", features = ["util"] }
+axum-test = "17"

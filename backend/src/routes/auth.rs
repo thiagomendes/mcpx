@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Form, Path, Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Redirect, Response},
     Json,
@@ -369,4 +369,307 @@ pub fn extract_org_context(headers: &axum::http::HeaderMap, secret: &str) -> Res
         .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))?;
     
     Ok((user_id, org_id, claims.org_slug))
+}
+
+// ============================================
+// OAUTH CLIENT CREDENTIALS (M2M)
+// ============================================
+
+#[derive(Debug, Deserialize)]
+pub struct TokenRequest {
+    pub grant_type: String,
+    pub client_id: String,
+    pub client_secret: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct M2MTokenResponse {
+    pub access_token: String,
+    pub token_type: String,
+    pub expires_in: i64,
+}
+
+/// M2M JWT Claims (different from user JWT)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct M2MClaims {
+    pub sub: String,         // service_account_id
+    pub org_id: String,      // org UUID
+    pub org_slug: String,    // org slug for proxy URLs
+    pub scopes: Vec<String>, // allowed scopes
+    pub exp: i64,
+    pub iat: i64,
+    pub iss: String,
+    pub token_type: String,  // "m2m" to distinguish from user tokens
+}
+
+const M2M_TOKEN_EXPIRY_SECONDS: i64 = 3600; // 1 hour
+
+/// POST /api/auth/token - OAuth 2.0 Client Credentials flow
+pub async fn oauth_token(
+    State(state): State<Arc<AppState>>,
+    Form(payload): Form<TokenRequest>,
+) -> Result<Json<M2MTokenResponse>, (StatusCode, String)> {
+    // Validate grant_type
+    if payload.grant_type != "client_credentials" {
+        return Err((StatusCode::BAD_REQUEST, "unsupported_grant_type".to_string()));
+    }
+
+    // Validate client_id prefix
+    if !payload.client_id.starts_with("mcpx_sa_") {
+        return Err((StatusCode::UNAUTHORIZED, "invalid_client".to_string()));
+    }
+
+    // Validate credentials
+    let account = crate::routes::service_accounts::validate_service_account(
+        &state.db.pool,
+        &payload.client_id,
+        &payload.client_secret,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+    .ok_or((StatusCode::UNAUTHORIZED, "invalid_client".to_string()))?;
+
+    // Get org slug for the JWT
+    let org_slug: Option<String> = sqlx::query_scalar("SELECT slug FROM organizations WHERE id = $1")
+        .bind(account.org_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+
+    let org_slug = org_slug.ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Org not found".to_string()))?;
+
+    // Extract scopes from JSON
+    let scopes: Vec<String> = serde_json::from_value(account.scopes.clone()).unwrap_or_default();
+
+    // Create M2M JWT
+    let now = chrono::Utc::now().timestamp();
+    let claims = M2MClaims {
+        sub: account.id.to_string(),
+        org_id: account.org_id.to_string(),
+        org_slug,
+        scopes,
+        exp: now + M2M_TOKEN_EXPIRY_SECONDS,
+        iat: now,
+        iss: "mcpx".to_string(),
+        token_type: "m2m".to_string(),
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Token encoding error: {}", e)))?;
+
+    tracing::info!("M2M token issued for service account: {}", payload.client_id);
+
+    Ok(Json(M2MTokenResponse {
+        access_token: token,
+        token_type: "Bearer".to_string(),
+        expires_in: M2M_TOKEN_EXPIRY_SECONDS,
+    }))
+}
+
+// ============================================
+// UNIT TESTS
+// ============================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    const TEST_JWT_SECRET: &str = "test-secret-key-for-jwt-testing-32b";
+
+    fn create_test_token(claims: &Claims, secret: &str) -> String {
+        encode(
+            &Header::default(),
+            claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap()
+    }
+
+    fn create_test_claims() -> Claims {
+        Claims {
+            sub: Uuid::new_v4().to_string(),
+            email: "test@example.com".to_string(),
+            exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize,
+            org_id: Uuid::new_v4().to_string(),
+            org_slug: "test-org".to_string(),
+            provider: "google".to_string(),
+        }
+    }
+
+    mod extract_token_tests {
+        use super::*;
+
+        #[test]
+        fn extracts_valid_bearer_token() {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                header::AUTHORIZATION,
+                HeaderValue::from_static("Bearer my-test-token"),
+            );
+
+            let result = extract_token(&headers);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), "my-test-token");
+        }
+
+        #[test]
+        fn returns_error_for_missing_header() {
+            let headers = axum::http::HeaderMap::new();
+            let result = extract_token(&headers);
+            
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+        }
+
+        #[test]
+        fn returns_error_for_invalid_format() {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                header::AUTHORIZATION,
+                HeaderValue::from_static("Basic my-token"),
+            );
+
+            let result = extract_token(&headers);
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+        }
+
+        #[test]
+        fn returns_error_for_empty_bearer() {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                header::AUTHORIZATION,
+                HeaderValue::from_static("Token my-token"),
+            );
+
+            let result = extract_token(&headers);
+            assert!(result.is_err());
+        }
+    }
+
+    mod validate_token_tests {
+        use super::*;
+
+        #[test]
+        fn validates_correct_token() {
+            let claims = create_test_claims();
+            let token = create_test_token(&claims, TEST_JWT_SECRET);
+
+            let result = validate_token(&token, TEST_JWT_SECRET);
+            assert!(result.is_ok());
+            
+            let validated_claims = result.unwrap();
+            assert_eq!(validated_claims.sub, claims.sub);
+            assert_eq!(validated_claims.org_slug, claims.org_slug);
+        }
+
+        #[test]
+        fn rejects_invalid_secret() {
+            let claims = create_test_claims();
+            let token = create_test_token(&claims, TEST_JWT_SECRET);
+
+            let result = validate_token(&token, "wrong-secret-key-32-bytes-here!!");
+            assert!(result.is_err());
+            
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+        }
+
+        #[test]
+        fn rejects_expired_token() {
+            let mut claims = create_test_claims();
+            claims.exp = (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp() as usize;
+            let token = create_test_token(&claims, TEST_JWT_SECRET);
+
+            let result = validate_token(&token, TEST_JWT_SECRET);
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn rejects_malformed_token() {
+            let result = validate_token("not.a.valid.jwt", TEST_JWT_SECRET);
+            assert!(result.is_err());
+            
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+        }
+    }
+
+    mod extract_org_context_tests {
+        use super::*;
+
+        #[test]
+        fn extracts_user_and_org_ids() {
+            let claims = create_test_claims();
+            let token = create_test_token(&claims, TEST_JWT_SECRET);
+
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                header::AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+            );
+
+            let result = extract_org_context(&headers, TEST_JWT_SECRET);
+            assert!(result.is_ok());
+
+            let (user_id, org_id, org_slug) = result.unwrap();
+            assert_eq!(user_id.to_string(), claims.sub);
+            assert_eq!(org_id.to_string(), claims.org_id);
+            assert_eq!(org_slug, claims.org_slug);
+        }
+
+        #[test]
+        fn returns_error_for_missing_auth() {
+            let headers = axum::http::HeaderMap::new();
+            let result = extract_org_context(&headers, TEST_JWT_SECRET);
+            assert!(result.is_err());
+        }
+    }
+
+    mod m2m_claims_tests {
+        use super::*;
+
+        #[test]
+        fn m2m_claims_serializes_correctly() {
+            let claims = M2MClaims {
+                sub: Uuid::new_v4().to_string(),
+                org_id: Uuid::new_v4().to_string(),
+                org_slug: "test-org".to_string(),
+                scopes: vec!["mcp:server:read".to_string(), "mcp:tool:execute".to_string()],
+                token_type: "service_account".to_string(),
+                exp: 1234567890,
+                iat: 1234564290,
+                iss: "mcpx".to_string(),
+            };
+
+            let json = serde_json::to_string(&claims).unwrap();
+            assert!(json.contains("service_account"));
+            assert!(json.contains("mcp:server:read"));
+        }
+
+        #[test]
+        fn m2m_claims_deserializes_correctly() {
+            let json = r#"{
+                "sub": "550e8400-e29b-41d4-a716-446655440000",
+                "org_id": "550e8400-e29b-41d4-a716-446655440001",
+                "org_slug": "test-org",
+                "scopes": ["mcp:server:read"],
+                "token_type": "service_account",
+                "exp": 1234567890,
+                "iat": 1234564290,
+                "iss": "mcpx"
+            }"#;
+
+            let claims: M2MClaims = serde_json::from_str(json).unwrap();
+            assert_eq!(claims.token_type, "service_account");
+            assert_eq!(claims.scopes.len(), 1);
+        }
+    }
 }
