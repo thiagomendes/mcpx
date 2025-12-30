@@ -258,23 +258,112 @@ async fn get_access_token(db: &Database, server_id: Uuid, encryption_key: &str) 
 }
 
 async fn try_refresh_token(db: &Database, server_id: Uuid, encryption_key: &str) -> Result<String, String> {
-    let row: Option<(Option<String>,)> = sqlx::query_as(
-        "SELECT refresh_token_encrypted FROM oauth_tokens WHERE server_id = $1 LIMIT 1"
+    // 1. Fetch refresh token and user_id from oauth_tokens
+    let token_row: Option<(String, Uuid)> = sqlx::query_as(
+        "SELECT refresh_token_encrypted, user_id FROM oauth_tokens WHERE server_id = $1 AND refresh_token_encrypted IS NOT NULL LIMIT 1"
     )
     .bind(server_id)
     .fetch_optional(&db.pool)
     .await
     .map_err(|e| format!("Failed to fetch refresh token: {}", e))?;
     
-    let refresh_encrypted = row
-        .and_then(|(r,)| r)
-        .ok_or("No refresh token available")?;
+    let (refresh_encrypted, user_id) = token_row
+        .ok_or("No refresh token available for this server")?;
     
+    // 2. Fetch server OAuth config (token_url and client_id)
+    let server_row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT oauth_token_url, oauth_client_id FROM servers WHERE id = $1"
+    )
+    .bind(server_id)
+    .fetch_optional(&db.pool)
+    .await
+    .map_err(|e| format!("Failed to fetch server config: {}", e))?;
+    
+    let (token_url, client_id) = server_row
+        .ok_or("Server not found")?;
+    
+    let token_url = token_url.ok_or("Server has no token_url configured")?;
+    let client_id = client_id.ok_or("Server has no client_id configured")?;
+    
+    // 3. Decrypt refresh token
     let key = crypto::derive_key(encryption_key);
-    let _refresh_token = crypto::decrypt(&refresh_encrypted, &key)
+    let refresh_token = crypto::decrypt(&refresh_encrypted, &key)
         .map_err(|e| format!("Failed to decrypt refresh token: {}", e))?;
     
-    Err("Token refresh not implemented yet - user must re-authorize".to_string())
+    tracing::info!("Attempting OAuth token refresh for server {}", server_id);
+    
+    // 4. Call token endpoint with refresh_token grant
+    let client = reqwest::Client::new();
+    let token_response = client.post(&token_url)
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", &refresh_token),
+            ("client_id", &client_id),
+        ])
+        .send()
+        .await
+        .map_err(|e| format!("Failed to call token endpoint: {}", e))?;
+    
+    if !token_response.status().is_success() {
+        let status = token_response.status();
+        let body = token_response.text().await.unwrap_or_default();
+        return Err(format!("Token refresh failed with status {}: {}", status, body));
+    }
+    
+    // 5. Parse response
+    #[derive(serde::Deserialize)]
+    struct TokenResponse {
+        access_token: String,
+        refresh_token: Option<String>,
+        expires_in: Option<i64>,
+        #[allow(dead_code)]
+        token_type: Option<String>,
+    }
+    
+    let tokens: TokenResponse = token_response.json().await
+        .map_err(|e| format!("Failed to parse token response: {}", e))?;
+    
+    // 6. Encrypt new tokens
+    let new_access_encrypted = crypto::encrypt(&tokens.access_token, &key)
+        .map_err(|e| format!("Failed to encrypt new access token: {}", e))?;
+    
+    let new_refresh_encrypted = match &tokens.refresh_token {
+        Some(rt) => Some(crypto::encrypt(rt, &key)
+            .map_err(|e| format!("Failed to encrypt new refresh token: {}", e))?),
+        None => None, // Keep existing refresh token if not returned
+    };
+    
+    let expires_at = tokens.expires_in.map(|secs| Utc::now() + chrono::Duration::seconds(secs));
+    
+    // 7. Update oauth_tokens in database
+    if let Some(ref new_refresh) = new_refresh_encrypted {
+        sqlx::query(
+            "UPDATE oauth_tokens SET access_token_encrypted = $1, refresh_token_encrypted = $2, expires_at = $3, updated_at = NOW() WHERE server_id = $4 AND user_id = $5"
+        )
+        .bind(&new_access_encrypted)
+        .bind(new_refresh)
+        .bind(expires_at)
+        .bind(server_id)
+        .bind(user_id)
+        .execute(&db.pool)
+        .await
+        .map_err(|e| format!("Failed to update tokens in database: {}", e))?;
+    } else {
+        sqlx::query(
+            "UPDATE oauth_tokens SET access_token_encrypted = $1, expires_at = $2, updated_at = NOW() WHERE server_id = $3 AND user_id = $4"
+        )
+        .bind(&new_access_encrypted)
+        .bind(expires_at)
+        .bind(server_id)
+        .bind(user_id)
+        .execute(&db.pool)
+        .await
+        .map_err(|e| format!("Failed to update tokens in database: {}", e))?;
+    }
+    
+    tracing::info!("Successfully refreshed OAuth token for server {}", server_id);
+    
+    Ok(tokens.access_token)
 }
 
 async fn test_mcp_connection(server_url: &str, auth_header_name: Option<&str>, auth_header_value: Option<&str>) -> Result<(), String> {
