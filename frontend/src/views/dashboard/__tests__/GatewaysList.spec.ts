@@ -34,13 +34,13 @@ describe('GatewaysList.vue', () => {
         vi.clearAllMocks()
     })
 
-    const createWrapper = (gatewaysData = { gateways: [], loading: false }) => {
+    const createWrapper = (gatewaysData: { gateways: unknown[]; loading: boolean } = { gateways: [], loading: false }) => {
         vi.mocked(useGatewaysStore).mockReturnValue({
             ...gatewaysData,
             fetchGateways: mockFetchGateways,
             deleteGateway: mockDeleteGateway,
             createGateway: mockCreateGateway,
-        } as any)
+        } as unknown as ReturnType<typeof useGatewaysStore>)
 
         return shallowMount(GatewaysList, {
             global: {

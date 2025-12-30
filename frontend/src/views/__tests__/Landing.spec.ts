@@ -121,7 +121,7 @@ describe('Landing.vue', () => {
         const mockSetToken = vi.fn()
         vi.mocked(useAuthStore).mockReturnValue({
             setToken: mockSetToken,
-        } as any)
+        } as unknown as ReturnType<typeof useAuthStore>)
 
         const wrapper = shallowMount(Landing, {
             global: {

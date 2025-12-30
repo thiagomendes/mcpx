@@ -205,9 +205,12 @@ describe('Auth Store', () => {
 
     describe('OAuth login helpers', () => {
         it('loginWithGoogle redirects to Google auth endpoint', () => {
-            // Mock window.location
-            delete (window as any).location
-            window.location = { href: '' } as Location
+            // Mock window.location using Object.defineProperty
+            Object.defineProperty(window, 'location', {
+                value: { href: '' },
+                writable: true,
+                configurable: true
+            })
 
             const store = useAuthStore()
             store.loginWithGoogle()
@@ -216,8 +219,11 @@ describe('Auth Store', () => {
         })
 
         it('loginWithGithub redirects to GitHub auth endpoint', () => {
-            delete (window as any).location
-            window.location = { href: '' } as Location
+            Object.defineProperty(window, 'location', {
+                value: { href: '' },
+                writable: true,
+                configurable: true
+            })
 
             const store = useAuthStore()
             store.loginWithGithub()
@@ -226,8 +232,11 @@ describe('Auth Store', () => {
         })
 
         it('loginWithMicrosoft redirects to Microsoft auth endpoint', () => {
-            delete (window as any).location
-            window.location = { href: '' } as Location
+            Object.defineProperty(window, 'location', {
+                value: { href: '' },
+                writable: true,
+                configurable: true
+            })
 
             const store = useAuthStore()
             store.loginWithMicrosoft()

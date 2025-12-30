@@ -31,12 +31,12 @@ describe('ServersList.vue', () => {
         vi.clearAllMocks()
     })
 
-    const createWrapper = (serversData = { servers: [], loading: false }) => {
+    const createWrapper = (serversData: { servers: unknown[]; loading: boolean } = { servers: [], loading: false }) => {
         vi.mocked(useServersStore).mockReturnValue({
             ...serversData,
             fetchServers: mockFetchServers,
             deleteServer: mockDeleteServer,
-        } as any)
+        } as unknown as ReturnType<typeof useServersStore>)
 
         return shallowMount(ServersList, {
             global: {
