@@ -16,8 +16,8 @@ use crate::AppState;
 const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND org_id = $2";
 
 const SQL_UPSERT_OAUTH_TOKENS: &str = r#"
-    INSERT INTO oauth_tokens (server_id, user_id, access_token_encrypted, refresh_token_encrypted, token_type, expires_at, scope)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    INSERT INTO oauth_tokens (server_id, user_id, access_token_encrypted, refresh_token_encrypted, token_type, expires_at, scope, dynamic_client_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     ON CONFLICT (server_id, user_id) 
     DO UPDATE SET 
         access_token_encrypted = $3,
@@ -25,6 +25,7 @@ const SQL_UPSERT_OAUTH_TOKENS: &str = r#"
         token_type = $5,
         expires_at = $6,
         scope = $7,
+        dynamic_client_id = $8,
         oauth_state = NULL,
         updated_at = NOW()
 "#;
@@ -41,6 +42,7 @@ pub struct StoreTokensRequest {
     pub token_type: Option<String>,
     pub expires_in: Option<i64>,
     pub scope: Option<String>,
+    pub client_id: Option<String>,  // Dynamic client_id from OAuth registration
 }
 
 #[derive(Debug, Serialize)]
@@ -86,6 +88,7 @@ pub async fn store_oauth_tokens(
         .bind(tokens.token_type.unwrap_or_else(|| "Bearer".to_string()))
         .bind(expires_at)
         .bind(&tokens.scope)
+        .bind(&tokens.client_id)  // $8: dynamic_client_id
         .execute(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;

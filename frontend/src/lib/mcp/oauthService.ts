@@ -36,9 +36,9 @@ export async function startOAuthFlow(
             serverName,
             backendUrl: ''
         },
-        async (tokens: OAuthTokens) => {
+        async (tokens: OAuthTokens, clientId?: string) => {
 
-            await storeTokensInBackend(serverName, tokens);
+            await storeTokensInBackend(serverName, tokens, clientId);
         }
     );
 
@@ -99,8 +99,8 @@ export async function handleOAuthCallback(
             serverName,
             backendUrl: ''
         },
-        async (tokens: OAuthTokens) => {
-            await storeTokensInBackend(serverName, tokens);
+        async (tokens: OAuthTokens, clientId?: string) => {
+            await storeTokensInBackend(serverName, tokens, clientId);
         }
     );
 
@@ -139,12 +139,13 @@ export async function handleOAuthCallback(
 /**
  * Store tokens in backend for secure persistence
  */
-async function storeTokensInBackend(serverName: string, tokens: OAuthTokens): Promise<void> {
+async function storeTokensInBackend(serverName: string, tokens: OAuthTokens, clientId?: string): Promise<void> {
     await api.post(`/servers/${serverName}/oauth/store-tokens`, {
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
         token_type: tokens.token_type,
         expires_in: tokens.expires_in,
-        scope: tokens.scope
+        scope: tokens.scope,
+        client_id: clientId  // For future token refresh
     });
 }
