@@ -3,6 +3,7 @@ pub mod audit;
 pub mod crypto;
 pub mod db;
 pub mod health_check;
+pub mod job_queue;
 pub mod mcp_client;
 pub mod metrics;
 pub mod oauth_provider;

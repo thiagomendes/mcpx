@@ -267,9 +267,12 @@ Dashboard API agora aceita 3 tipos de token:
 - [x] Validação de email no aceite de convite
 - [x] PATs deletados ao remover membro da org
 
-### Auto-refresh OAuth tokens
-- [ ] Implementar `try_refresh_token`
-- [ ] Usar refresh_token quando expira
+### Auto-refresh OAuth tokens ✅
+**Status:** ✅ **COMPLETO**
+
+- [x] `try_refresh_token` implementado em `services/health_check.rs`
+- [x] Usa refresh_token quando access_token expira
+- [x] Atualiza banco com novo token automaticamente
 
 ### Rate Limiting
 - [ ] Contador por janela de tempo

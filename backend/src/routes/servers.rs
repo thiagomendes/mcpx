@@ -356,7 +356,7 @@ pub async fn test_server(
     auth: AuthUser,
     Path(name): Path<String>,
 ) -> Result<Json<TestResult>, (StatusCode, String)> {
-    let user_id = auth.user_id;
+    let _user_id = auth.user_id;
     let org_id = auth.org_id;
 
     let server = sqlx::query_as::<_, Server>(SQL_SELECT_SERVER_BY_NAME)

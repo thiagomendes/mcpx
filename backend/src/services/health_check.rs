@@ -53,7 +53,7 @@ pub async fn start_health_check_job(db: Database, encryption_key: String, interv
     });
 }
 
-async fn run_health_check_cycle(db: &Database, encryption_key: &str) -> Result<(), String> {
+pub async fn run_health_check_cycle(db: &Database, encryption_key: &str) -> Result<(), String> {
     let servers: Vec<ServerForHealthCheck> = sqlx::query_as(
         "SELECT id, org_id, url, auth_type, status, oauth_client_id, oauth_token_url FROM servers WHERE status != 'pending_auth' AND enabled = true"
     )

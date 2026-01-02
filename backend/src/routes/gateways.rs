@@ -530,20 +530,11 @@ struct GovernanceRow {
     tool_prefix: String,
 }
 
+#[derive(Default)]
 struct GovernanceConfig {
     allowed_tools: Vec<String>,
     denied_tools: Vec<String>,
     tool_prefix: String,
-}
-
-impl Default for GovernanceConfig {
-    fn default() -> Self {
-        GovernanceConfig {
-            allowed_tools: vec![],
-            denied_tools: vec![],
-            tool_prefix: String::new(),
-        }
-    }
 }
 
 impl GovernanceConfig {
