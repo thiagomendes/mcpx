@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::AppState;
-use crate::routes::auth::extract_org_context;
 use crate::messages::error;
+use crate::middleware::auth::AuthUser;
+use crate::middleware::permissions::Permission;
+use crate::AppState;
 
 // ============================================
 // SQL QUERIES - Now using org_id instead of user_id
@@ -74,7 +75,15 @@ const SQL_GET_GATEWAY_ID: &str = "SELECT id FROM gateways WHERE slug = $1 AND or
 // TYPES
 // ============================================
 
-type GatewayDbRow = (Uuid, String, String, bool, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, serde_json::Value);
+type GatewayDbRow = (
+    Uuid,
+    String,
+    String,
+    bool,
+    chrono::DateTime<chrono::Utc>,
+    chrono::DateTime<chrono::Utc>,
+    serde_json::Value,
+);
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct GatewayRow {
@@ -114,7 +123,9 @@ pub struct CreateGatewayRequest {
     pub servers: Vec<String>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateGatewayRequest {
@@ -153,21 +164,26 @@ fn parse_servers_json(json: serde_json::Value) -> Vec<GatewayServer> {
 
 pub async fn list_gateways(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<Json<Vec<GatewayResponse>>, (StatusCode, String)> {
-    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
+    let org_slug = auth.org_slug;
 
-    let rows: Vec<GatewayDbRow> = 
-        sqlx::query_as(SQL_SELECT_GATEWAYS)
-            .bind(org_id)
-            .fetch_all(&state.db.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+    let rows: Vec<GatewayDbRow> = sqlx::query_as(SQL_SELECT_GATEWAYS)
+        .bind(org_id)
+        .fetch_all(&state.db.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     let gateways: Vec<GatewayResponse> = rows
         .into_iter()
-        .map(|(id, name, slug, enabled, created_at, updated_at, servers_json)| {
-            GatewayResponse {
+        .map(
+            |(id, name, slug, enabled, created_at, updated_at, servers_json)| GatewayResponse {
                 id,
                 name,
                 slug: slug.clone(),
@@ -176,8 +192,8 @@ pub async fn list_gateways(
                 servers: parse_servers_json(servers_json),
                 created_at,
                 updated_at,
-            }
-        })
+            },
+        )
         .collect();
 
     Ok(Json(gateways))
@@ -185,18 +201,23 @@ pub async fn list_gateways(
 
 pub async fn get_gateway(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(slug): Path<String>,
 ) -> Result<Json<GatewayResponse>, (StatusCode, String)> {
-    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
+    let org_slug = auth.org_slug;
 
-    let row: Option<GatewayDbRow> = 
-        sqlx::query_as(SQL_SELECT_GATEWAY_BY_SLUG)
-            .bind(org_id)
-            .bind(&slug)
-            .fetch_optional(&state.db.pool)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+    let row: Option<GatewayDbRow> = sqlx::query_as(SQL_SELECT_GATEWAY_BY_SLUG)
+        .bind(org_id)
+        .bind(&slug)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     match row {
         Some((id, name, slug, enabled, created_at, updated_at, servers_json)) => {
@@ -217,12 +238,52 @@ pub async fn get_gateway(
 
 pub async fn create_gateway(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Json(payload): Json<CreateGatewayRequest>,
 ) -> Result<(StatusCode, Json<GatewayResponse>), (StatusCode, String)> {
-    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::GatewaysWrite)?;
 
-    if !payload.slug.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    let org_id = auth.org_id;
+    let org_slug = auth.org_slug.clone();
+
+    // Check max_gateways_per_org limit
+    let max_gateways = crate::routes::settings::get_org_setting_value(
+        &state.db,
+        org_id,
+        "max_gateways_per_org",
+        "50",
+    )
+    .await
+    .parse::<i64>()
+    .unwrap_or(50);
+
+    let current_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM gateways WHERE org_id = $1")
+        .bind(org_id)
+        .fetch_one(&state.db.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
+
+    if current_count.0 >= max_gateways {
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Gateway limit reached. Maximum {} gateways per organization.",
+                max_gateways
+            ),
+        ));
+    }
+
+    if !payload
+        .slug
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err((StatusCode::BAD_REQUEST, "Invalid slug format".to_string()));
     }
 
@@ -233,7 +294,12 @@ pub async fn create_gateway(
         .bind(payload.enabled)
         .fetch_one(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     for server_name in &payload.servers {
         let _ = sqlx::query(SQL_ADD_SERVER_TO_GATEWAY)
@@ -244,32 +310,45 @@ pub async fn create_gateway(
             .await;
     }
 
-    Ok((StatusCode::CREATED, Json(GatewayResponse {
-        id: row.id,
-        name: row.name,
-        slug: row.slug.clone(),
-        enabled: row.enabled,
-        proxy_url: format!("{}/mcp/{}/{}", state.config.base_url, org_slug, row.slug),
-        servers: vec![],
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    })))
+    Ok((
+        StatusCode::CREATED,
+        Json(GatewayResponse {
+            id: row.id,
+            name: row.name,
+            slug: row.slug.clone(),
+            enabled: row.enabled,
+            proxy_url: format!("{}/mcp/{}/{}", state.config.base_url, org_slug, row.slug),
+            servers: vec![],
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }),
+    ))
 }
 
 pub async fn update_gateway(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(slug): Path<String>,
     Json(payload): Json<UpdateGatewayRequest>,
 ) -> Result<Json<GatewayResponse>, (StatusCode, String)> {
-    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::GatewaysWrite)?;
 
-    let existing: Option<GatewayRow> = sqlx::query_as("SELECT * FROM gateways WHERE slug = $1 AND org_id = $2")
-        .bind(&slug)
-        .bind(org_id)
-        .fetch_optional(&state.db.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+    let org_id = auth.org_id;
+    let org_slug = auth.org_slug.clone();
+
+    let existing: Option<GatewayRow> =
+        sqlx::query_as("SELECT * FROM gateways WHERE slug = $1 AND org_id = $2")
+            .bind(&slug)
+            .bind(org_id)
+            .fetch_optional(&state.db.pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("{}: {}", error::DATABASE_ERROR, e),
+                )
+            })?;
 
     let existing = existing.ok_or((StatusCode::NOT_FOUND, "Gateway not found".to_string()))?;
 
@@ -285,7 +364,12 @@ pub async fn update_gateway(
         .bind(org_id)
         .fetch_one(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(Json(GatewayResponse {
         id: row.id,
@@ -301,37 +385,55 @@ pub async fn update_gateway(
 
 pub async fn delete_gateway(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(slug): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::GatewaysWrite)?;
+
+    let org_id = auth.org_id;
 
     sqlx::query(SQL_DELETE_GATEWAY)
         .bind(&slug)
         .bind(org_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn add_server_to_gateway(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(slug): Path<String>,
     Json(payload): Json<AddServerRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::GatewaysWrite)?;
+
+    let org_id = auth.org_id;
 
     let gateway_id: Option<(Uuid,)> = sqlx::query_as(SQL_GET_GATEWAY_ID)
         .bind(&slug)
         .bind(org_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
-    let gateway_id = gateway_id.ok_or((StatusCode::NOT_FOUND, "Gateway not found".to_string()))?.0;
+    let gateway_id = gateway_id
+        .ok_or((StatusCode::NOT_FOUND, "Gateway not found".to_string()))?
+        .0;
 
     sqlx::query(SQL_ADD_SERVER_TO_GATEWAY)
         .bind(gateway_id)
@@ -339,26 +441,41 @@ pub async fn add_server_to_gateway(
         .bind(org_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(StatusCode::CREATED)
 }
 
 pub async fn remove_server_from_gateway(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path((slug, server_name)): Path<(String, String)>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::GatewaysWrite)?;
+
+    let org_id = auth.org_id;
 
     let gateway_id: Option<(Uuid,)> = sqlx::query_as(SQL_GET_GATEWAY_ID)
         .bind(&slug)
         .bind(org_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
-    let gateway_id = gateway_id.ok_or((StatusCode::NOT_FOUND, "Gateway not found".to_string()))?.0;
+    let gateway_id = gateway_id
+        .ok_or((StatusCode::NOT_FOUND, "Gateway not found".to_string()))?
+        .0;
 
     sqlx::query(SQL_REMOVE_SERVER_FROM_GATEWAY)
         .bind(gateway_id)
@@ -366,7 +483,12 @@ pub async fn remove_server_from_gateway(
         .bind(org_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -393,6 +515,56 @@ const SQL_SELECT_CREDENTIAL: &str = r#"
     SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2
 "#;
 
+const SQL_SELECT_OAUTH_TOKEN: &str = r#"
+    SELECT access_token_encrypted FROM oauth_tokens WHERE server_id = $1 AND org_id = $2
+"#;
+
+const SQL_SELECT_GOVERNANCE: &str = r#"
+    SELECT allowed_tools, denied_tools, tool_prefix FROM governance_configs WHERE server_id = $1
+"#;
+
+#[derive(Debug, sqlx::FromRow)]
+struct GovernanceRow {
+    allowed_tools: serde_json::Value,
+    denied_tools: serde_json::Value,
+    tool_prefix: String,
+}
+
+struct GovernanceConfig {
+    allowed_tools: Vec<String>,
+    denied_tools: Vec<String>,
+    tool_prefix: String,
+}
+
+impl Default for GovernanceConfig {
+    fn default() -> Self {
+        GovernanceConfig {
+            allowed_tools: vec![],
+            denied_tools: vec![],
+            tool_prefix: String::new(),
+        }
+    }
+}
+
+impl GovernanceConfig {
+    fn is_tool_allowed(&self, name: &str) -> bool {
+        // If allowlist defined, tool must be in it
+        if !self.allowed_tools.is_empty() && !self.allowed_tools.contains(&name.to_string()) {
+            return false;
+        }
+        // Tool must not be in denylist
+        !self.denied_tools.contains(&name.to_string())
+    }
+
+    fn add_prefix(&self, name: &str) -> String {
+        if self.tool_prefix.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}_{}", self.tool_prefix, name)
+        }
+    }
+}
+
 #[derive(Debug, sqlx::FromRow)]
 struct ServerRowForTools {
     id: Uuid,
@@ -402,12 +574,13 @@ struct ServerRowForTools {
 }
 
 /// GET /api/gateways/:slug/tools - List tools from all servers in gateway (JWT auth)
+/// Fetches tools from each server and applies governance (tool prefix, allowlist, blocklist)
 pub async fn list_gateway_tools(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(slug): Path<String>,
 ) -> Result<Json<Vec<GatewayToolResponse>>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     // Get gateway ID
     let gateway_id: Option<(Uuid,)> = sqlx::query_as(SQL_GET_GATEWAY_ID)
@@ -415,16 +588,28 @@ pub async fn list_gateway_tools(
         .bind(org_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
-    let gateway_id = gateway_id.ok_or((StatusCode::NOT_FOUND, "Gateway not found".to_string()))?.0;
+    let gateway_id = gateway_id
+        .ok_or((StatusCode::NOT_FOUND, "Gateway not found".to_string()))?
+        .0;
 
     // Get all servers in gateway
     let servers: Vec<ServerRowForTools> = sqlx::query_as(SQL_GET_GATEWAY_SERVERS)
         .bind(gateway_id)
         .fetch_all(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     if servers.is_empty() {
         return Ok(Json(vec![]));
@@ -435,20 +620,31 @@ pub async fn list_gateway_tools(
 
     for server in &servers {
         // Build auth headers for server
-        let (auth_header_name, auth_header_value) = get_server_auth_header(&state, server).await;
-        
-        // Fetch tools from server using MCP client
+        let (auth_header_name, auth_header_value) =
+            get_server_auth_header(&state, server, org_id).await;
+
+        // Fetch governance config for this server
+        let governance = get_server_governance(&state, server.id).await;
+
+        // Fetch tools from upstream server
         match crate::services::mcp_client::list_tools_from_server(
             &server.url,
             auth_header_name.as_deref(),
             auth_header_value.as_deref(),
-        ).await {
+        )
+        .await
+        {
             Ok(tools) => {
                 for tool in tools {
-                    all_tools.push(GatewayToolResponse {
-                        name: tool.name,
-                        description: tool.description,
-                    });
+                    // Apply governance filtering
+                    if governance.is_tool_allowed(&tool.name) {
+                        // Apply prefix from governance
+                        let prefixed_name = governance.add_prefix(&tool.name);
+                        all_tools.push(GatewayToolResponse {
+                            name: prefixed_name,
+                            description: tool.description,
+                        });
+                    }
                 }
             }
             Err(e) => {
@@ -460,10 +656,44 @@ pub async fn list_gateway_tools(
     Ok(Json(all_tools))
 }
 
+/// Fetch governance config for a server
+async fn get_server_governance(state: &AppState, server_id: Uuid) -> GovernanceConfig {
+    let row: Option<GovernanceRow> = sqlx::query_as(SQL_SELECT_GOVERNANCE)
+        .bind(server_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .ok()
+        .flatten();
+
+    match row {
+        Some(r) => GovernanceConfig {
+            allowed_tools: json_to_vec(&r.allowed_tools),
+            denied_tools: json_to_vec(&r.denied_tools),
+            tool_prefix: r.tool_prefix,
+        },
+        None => GovernanceConfig::default(),
+    }
+}
+
+fn json_to_vec(value: &serde_json::Value) -> Vec<String> {
+    value
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Get auth headers for a server (uses same pattern as proxy.rs)
-async fn get_server_auth_header(state: &AppState, server: &ServerRowForTools) -> (Option<String>, Option<String>) {
+async fn get_server_auth_header(
+    state: &AppState,
+    server: &ServerRowForTools,
+    org_id: uuid::Uuid,
+) -> (Option<String>, Option<String>) {
     use crate::services::crypto;
-    
+
     match server.auth_type.as_deref() {
         Some("api_key") => {
             let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
@@ -473,12 +703,12 @@ async fn get_server_auth_header(state: &AppState, server: &ServerRowForTools) ->
                 .await
                 .ok()
                 .flatten();
-            
+
             if let Some((encrypted,)) = row {
                 let key = crypto::derive_key(&state.config.encryption_key);
                 match crypto::decrypt(&encrypted, &key) {
                     Ok(api_key) => (Some("X-API-Key".to_string()), Some(api_key)),
-                    Err(_) => (None, None)
+                    Err(_) => (None, None),
                 }
             } else {
                 (None, None)
@@ -492,17 +722,48 @@ async fn get_server_auth_header(state: &AppState, server: &ServerRowForTools) ->
                 .await
                 .ok()
                 .flatten();
-            
+
             if let Some((encrypted,)) = row {
                 let key = crypto::derive_key(&state.config.encryption_key);
                 match crypto::decrypt(&encrypted, &key) {
-                    Ok(token) => (Some("Authorization".to_string()), Some(format!("Bearer {}", token))),
-                    Err(_) => (None, None)
+                    Ok(token) => (
+                        Some("Authorization".to_string()),
+                        Some(format!("Bearer {}", token)),
+                    ),
+                    Err(_) => (None, None),
                 }
             } else {
                 (None, None)
             }
         }
-        _ => (None, None)
+        Some("oauth_auto") => {
+            // Fetch OAuth token from oauth_tokens table (per-org)
+            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_OAUTH_TOKEN)
+                .bind(server.id)
+                .bind(org_id)
+                .fetch_optional(&state.db.pool)
+                .await
+                .ok()
+                .flatten();
+
+            if let Some((encrypted,)) = row {
+                let key = crypto::derive_key(&state.config.encryption_key);
+                match crypto::decrypt(&encrypted, &key) {
+                    Ok(token) => (
+                        Some("Authorization".to_string()),
+                        Some(format!("Bearer {}", token)),
+                    ),
+                    Err(_) => (None, None),
+                }
+            } else {
+                tracing::warn!(
+                    "No OAuth token found for server {} in org {}",
+                    server.name,
+                    org_id
+                );
+                (None, None)
+            }
+        }
+        _ => (None, None),
     }
 }

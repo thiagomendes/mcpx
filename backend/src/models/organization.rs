@@ -1,8 +1,8 @@
 #![allow(dead_code)]
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 // ============================================
 // ORGANIZATION
@@ -36,7 +36,7 @@ pub struct OrgResponse {
     pub name: String,
     pub slug: String,
     pub is_personal: bool,
-    pub role: String,  // user's role in this org
+    pub role: String, // user's role in this org
     pub created_at: DateTime<Utc>,
 }
 
@@ -77,7 +77,7 @@ impl std::fmt::Display for OrgRole {
 
 impl std::str::FromStr for OrgRole {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "owner" => Ok(OrgRole::Owner),

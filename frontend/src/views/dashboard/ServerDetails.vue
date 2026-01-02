@@ -12,7 +12,7 @@
           </div>
           <p class="text-gray-400 font-mono text-sm">{{ server.url }}</p>
         </div>
-        <div class="flex gap-2">
+        <div v-if="canWrite" class="flex gap-2">
           <button @click="handleDelete" class="btn btn-ghost text-red-400 flex items-center gap-2">
             <TrashIcon class="w-5 h-5" />
             Delete
@@ -91,13 +91,14 @@
         </div>
         <div v-else-if="oauthStatus?.connected && isTokenExpired" class="bg-red-500/20 text-red-400 px-4 py-3 rounded-lg mb-4 flex items-center gap-2">
           <ExclamationCircleIcon class="w-5 h-5" />
-          Token expired - Click "Re-authorize" to reconnect
+          {{ canWrite ? 'Token expired - Click "Re-authorize" to reconnect' : 'Token expired - Contact an admin to re-authorize' }}
         </div>
         <div v-else class="bg-yellow-500/20 text-yellow-400 px-4 py-3 rounded-lg mb-4 flex items-center gap-2">
           <ExclamationTriangleIcon class="w-5 h-5" />
-          Not authorized - Click "Authorize" to connect with OAuth
+          {{ canWrite ? 'Not authorized - Click "Authorize" to connect with OAuth' : 'Not authorized - Contact an admin to authorize' }}
         </div>
         <button 
+          v-if="canWrite"
           @click="handleAuthorize" 
           :disabled="authorizing"
           class="btn btn-primary flex items-center gap-2"
@@ -135,8 +136,8 @@
         </div>
       </div>
 
-      <!-- Tool Governance -->
-      <ToolGovernance :server-name="server.name" :available-tools="testResult?.tools || []" />
+      <!-- Tool Governance (admin only) -->
+      <ToolGovernance v-if="canWrite" :server-name="server.name" :available-tools="testResult?.tools || []" />
 
       <!-- Server Info -->
       <div class="card">
@@ -180,6 +181,7 @@ import ToolGovernance from '@/components/ui/ToolGovernance.vue'
 import { useServersStore, type Server, type TestResult } from '@/stores/servers'
 import api from '@/api/client'
 import { startOAuthFlow } from '@/lib/mcp'
+import { usePermissions } from '@/composables/usePermissions'
 import { 
   SignalIcon, 
   TrashIcon, 
@@ -198,6 +200,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const { canWrite } = usePermissions()
 const serversStore = useServersStore()
 
 const server = ref<Server | null>(null)

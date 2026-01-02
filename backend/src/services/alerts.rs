@@ -3,10 +3,10 @@
 //!
 //! Manages alert rules and their evaluation
 
-use sqlx::PgPool;
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
+use uuid::Uuid;
 
 // ============================================================================
 // Data Structures
@@ -116,7 +116,7 @@ pub async fn create_rule(
 ) -> Result<AlertRule, sqlx::Error> {
     let id = Uuid::new_v4();
     let notify = input.notify_dashboard.unwrap_or(true);
-    
+
     sqlx::query_as::<_, AlertRule>(
         r#"
         INSERT INTO alert_rules (
@@ -162,7 +162,11 @@ pub async fn list_rules(pool: &PgPool, org_id: Uuid) -> Result<Vec<AlertRule>, s
 }
 
 /// Get a single alert rule
-pub async fn get_rule(pool: &PgPool, org_id: Uuid, rule_id: Uuid) -> Result<Option<AlertRule>, sqlx::Error> {
+pub async fn get_rule(
+    pool: &PgPool,
+    org_id: Uuid,
+    rule_id: Uuid,
+) -> Result<Option<AlertRule>, sqlx::Error> {
     sqlx::query_as::<_, AlertRule>(
         r#"
         SELECT id, org_id, name, alert_type, metric, scope_type, scope_id,
@@ -188,22 +192,52 @@ pub async fn update_rule(
     // Build dynamic UPDATE query
     let mut updates = Vec::new();
     let mut param_count = 2;
-    
-    if input.name.is_some() { param_count += 1; updates.push(format!("name = ${}", param_count)); }
-    if input.alert_type.is_some() { param_count += 1; updates.push(format!("alert_type = ${}", param_count)); }
-    if input.metric.is_some() { param_count += 1; updates.push(format!("metric = ${}", param_count)); }
-    if input.scope_type.is_some() { param_count += 1; updates.push(format!("scope_type = ${}", param_count)); }
-    if input.scope_id.is_some() { param_count += 1; updates.push(format!("scope_id = ${}", param_count)); }
-    if input.operator.is_some() { param_count += 1; updates.push(format!("operator = ${}", param_count)); }
-    if input.threshold.is_some() { param_count += 1; updates.push(format!("threshold = ${}", param_count)); }
-    if input.duration_minutes.is_some() { param_count += 1; updates.push(format!("duration_minutes = ${}", param_count)); }
-    if input.notify_dashboard.is_some() { param_count += 1; updates.push(format!("notify_dashboard = ${}", param_count)); }
-    if input.enabled.is_some() { param_count += 1; updates.push(format!("enabled = ${}", param_count)); }
-    
+
+    if input.name.is_some() {
+        param_count += 1;
+        updates.push(format!("name = ${}", param_count));
+    }
+    if input.alert_type.is_some() {
+        param_count += 1;
+        updates.push(format!("alert_type = ${}", param_count));
+    }
+    if input.metric.is_some() {
+        param_count += 1;
+        updates.push(format!("metric = ${}", param_count));
+    }
+    if input.scope_type.is_some() {
+        param_count += 1;
+        updates.push(format!("scope_type = ${}", param_count));
+    }
+    if input.scope_id.is_some() {
+        param_count += 1;
+        updates.push(format!("scope_id = ${}", param_count));
+    }
+    if input.operator.is_some() {
+        param_count += 1;
+        updates.push(format!("operator = ${}", param_count));
+    }
+    if input.threshold.is_some() {
+        param_count += 1;
+        updates.push(format!("threshold = ${}", param_count));
+    }
+    if input.duration_minutes.is_some() {
+        param_count += 1;
+        updates.push(format!("duration_minutes = ${}", param_count));
+    }
+    if input.notify_dashboard.is_some() {
+        param_count += 1;
+        updates.push(format!("notify_dashboard = ${}", param_count));
+    }
+    if input.enabled.is_some() {
+        param_count += 1;
+        updates.push(format!("enabled = ${}", param_count));
+    }
+
     if updates.is_empty() {
         return get_rule(pool, org_id, rule_id).await;
     }
-    
+
     let sql = format!(
         r#"
         UPDATE alert_rules
@@ -215,35 +249,53 @@ pub async fn update_rule(
         "#,
         updates.join(", ")
     );
-    
+
     let mut query = sqlx::query_as::<_, AlertRule>(&sql)
         .bind(rule_id)
         .bind(org_id);
-    
-    if let Some(v) = &input.name { query = query.bind(v); }
-    if let Some(v) = &input.alert_type { query = query.bind(v); }
-    if let Some(v) = &input.metric { query = query.bind(v); }
-    if let Some(v) = &input.scope_type { query = query.bind(v); }
-    if let Some(v) = &input.scope_id { query = query.bind(v); }
-    if let Some(v) = &input.operator { query = query.bind(v); }
-    if let Some(v) = &input.threshold { query = query.bind(v); }
-    if let Some(v) = &input.duration_minutes { query = query.bind(v); }
-    if let Some(v) = &input.notify_dashboard { query = query.bind(v); }
-    if let Some(v) = &input.enabled { query = query.bind(v); }
-    
+
+    if let Some(v) = &input.name {
+        query = query.bind(v);
+    }
+    if let Some(v) = &input.alert_type {
+        query = query.bind(v);
+    }
+    if let Some(v) = &input.metric {
+        query = query.bind(v);
+    }
+    if let Some(v) = &input.scope_type {
+        query = query.bind(v);
+    }
+    if let Some(v) = &input.scope_id {
+        query = query.bind(v);
+    }
+    if let Some(v) = &input.operator {
+        query = query.bind(v);
+    }
+    if let Some(v) = &input.threshold {
+        query = query.bind(v);
+    }
+    if let Some(v) = &input.duration_minutes {
+        query = query.bind(v);
+    }
+    if let Some(v) = &input.notify_dashboard {
+        query = query.bind(v);
+    }
+    if let Some(v) = &input.enabled {
+        query = query.bind(v);
+    }
+
     query.fetch_optional(pool).await
 }
 
 /// Delete an alert rule
 pub async fn delete_rule(pool: &PgPool, org_id: Uuid, rule_id: Uuid) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
-        "DELETE FROM alert_rules WHERE id = $1 AND org_id = $2"
-    )
-    .bind(rule_id)
-    .bind(org_id)
-    .execute(pool)
-    .await?;
-    
+    let result = sqlx::query("DELETE FROM alert_rules WHERE id = $1 AND org_id = $2")
+        .bind(rule_id)
+        .bind(org_id)
+        .execute(pool)
+        .await?;
+
     Ok(result.rows_affected() > 0)
 }
 
@@ -252,7 +304,10 @@ pub async fn delete_rule(pool: &PgPool, org_id: Uuid, rule_id: Uuid) -> Result<b
 // ============================================================================
 
 /// Get active alerts for a user (dashboard panel)
-pub async fn get_active_alerts(pool: &PgPool, org_id: Uuid) -> Result<Vec<ActiveAlert>, sqlx::Error> {
+pub async fn get_active_alerts(
+    pool: &PgPool,
+    org_id: Uuid,
+) -> Result<Vec<ActiveAlert>, sqlx::Error> {
     sqlx::query_as::<_, ActiveAlert>(
         r#"
         SELECT h.id, h.rule_id, r.name as rule_name, r.alert_type, r.metric,
@@ -281,7 +336,7 @@ pub async fn list_history(
 ) -> Result<AlertHistoryResponse, sqlx::Error> {
     let limit = query.limit.min(100);
     let offset = query.offset;
-    
+
     // Count total
     let count_sql = if query.status.is_some() {
         r#"
@@ -296,7 +351,7 @@ pub async fn list_history(
         WHERE r.org_id = $1
         "#
     };
-    
+
     let total: (i64,) = if let Some(ref status) = query.status {
         sqlx::query_as(count_sql)
             .bind(org_id)
@@ -309,7 +364,7 @@ pub async fn list_history(
             .fetch_one(pool)
             .await?
     };
-    
+
     // Get data
     let data_sql = if query.status.is_some() {
         format!(
@@ -336,7 +391,7 @@ pub async fn list_history(
             limit, offset
         )
     };
-    
+
     let data: Vec<AlertHistory> = if let Some(ref status) = query.status {
         sqlx::query_as(&data_sql)
             .bind(org_id)
@@ -349,7 +404,7 @@ pub async fn list_history(
             .fetch_all(pool)
             .await?
     };
-    
+
     Ok(AlertHistoryResponse {
         data,
         total: total.0,
@@ -370,13 +425,13 @@ pub async fn acknowledge_alert(
         SET status = 'acknowledged'
         FROM alert_rules r
         WHERE h.id = $1 AND h.rule_id = r.id AND r.org_id = $2 AND h.status = 'triggered'
-        "#
+        "#,
     )
     .bind(alert_id)
     .bind(org_id)
     .execute(pool)
     .await?;
-    
+
     Ok(result.rows_affected() > 0)
 }
 
@@ -391,7 +446,7 @@ pub async fn trigger_alert(
     trigger_value: f64,
 ) -> Result<Uuid, sqlx::Error> {
     let id = Uuid::new_v4();
-    
+
     sqlx::query(
         r#"
         INSERT INTO alert_history (id, rule_id, trigger_value, status)
@@ -403,7 +458,7 @@ pub async fn trigger_alert(
     .bind(trigger_value)
     .execute(pool)
     .await?;
-    
+
     Ok(id)
 }
 
@@ -414,12 +469,12 @@ pub async fn resolve_alert(pool: &PgPool, rule_id: Uuid) -> Result<bool, sqlx::E
         UPDATE alert_history
         SET status = 'resolved', resolved_at = NOW()
         WHERE rule_id = $1 AND status IN ('triggered', 'acknowledged')
-        "#
+        "#,
     )
     .bind(rule_id)
     .execute(pool)
     .await?;
-    
+
     Ok(result.rows_affected() > 0)
 }
 
@@ -431,7 +486,7 @@ pub async fn has_active_alert(pool: &PgPool, rule_id: Uuid) -> Result<bool, sqlx
     .bind(rule_id)
     .fetch_one(pool)
     .await?;
-    
+
     Ok(result.0 > 0)
 }
 

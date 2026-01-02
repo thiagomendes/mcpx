@@ -47,12 +47,11 @@ pub fn decrypt(encrypted: &str, key: &[u8; 32]) -> Result<String, String> {
         .decrypt(nonce, ciphertext)
         .map_err(|e| format!("{}: {}", error::DECRYPTION_FAILED, e))?;
 
-    String::from_utf8(plaintext)
-        .map_err(|e| format!("{}: {}", error::INVALID_UTF8, e))
+    String::from_utf8(plaintext).map_err(|e| format!("{}: {}", error::INVALID_UTF8, e))
 }
 
 pub fn derive_key(secret: &str) -> [u8; 32] {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(secret.as_bytes());
     hasher.finalize().into()

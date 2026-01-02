@@ -2,7 +2,9 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::models::organization::{Organization, OrgMember, OrgMemberResponse, OrgResponse, UserIdentity};
+use crate::models::organization::{
+    OrgMember, OrgMemberResponse, OrgResponse, Organization, UserIdentity,
+};
 use crate::models::user::User;
 
 // ============================================
@@ -67,7 +69,8 @@ const SQL_UPDATE_MEMBER_ROLE: &str = r#"
 
 const SQL_REMOVE_MEMBER: &str = "DELETE FROM org_members WHERE org_id = $1 AND user_id = $2";
 
-const SQL_COUNT_OWNERS: &str = "SELECT COUNT(*) FROM org_members WHERE org_id = $1 AND role = 'owner'";
+const SQL_COUNT_OWNERS: &str =
+    "SELECT COUNT(*) FROM org_members WHERE org_id = $1 AND role = 'owner'";
 
 // ============================================
 // INVITE QUERIES
@@ -79,10 +82,11 @@ const SQL_CREATE_INVITE: &str = r#"
     RETURNING *
 "#;
 
-const SQL_GET_INVITE_BY_TOKEN: &str = "SELECT * FROM org_invites WHERE token = $1 AND expires_at > NOW()";
+const SQL_GET_INVITE_BY_TOKEN: &str =
+    "SELECT * FROM org_invites WHERE token = $1 AND expires_at > NOW()";
 const SQL_DELETE_INVITE: &str = "DELETE FROM org_invites WHERE id = $1";
-const SQL_LIST_INVITES: &str = "SELECT * FROM org_invites WHERE org_id = $1 ORDER BY created_at DESC";
-
+const SQL_LIST_INVITES: &str =
+    "SELECT * FROM org_invites WHERE org_id = $1 ORDER BY created_at DESC";
 
 // ============================================
 // USER IDENTITY QUERIES
@@ -95,7 +99,8 @@ const SQL_CREATE_IDENTITY: &str = r#"
     RETURNING *
 "#;
 
-const SQL_GET_IDENTITY: &str = "SELECT * FROM user_identities WHERE provider = $1 AND provider_user_id = $2";
+const SQL_GET_IDENTITY: &str =
+    "SELECT * FROM user_identities WHERE provider = $1 AND provider_user_id = $2";
 const SQL_LIST_USER_IDENTITIES: &str = "SELECT * FROM user_identities WHERE user_id = $1";
 
 // ============================================
@@ -149,9 +154,13 @@ impl OrgService {
     }
 
     /// Create a personal workspace for a new user
-    pub async fn create_personal_org(pool: &PgPool, user: &User) -> Result<Organization, sqlx::Error> {
+    pub async fn create_personal_org(
+        pool: &PgPool,
+        user: &User,
+    ) -> Result<Organization, sqlx::Error> {
         // Generate slug from email prefix
-        let slug = user.email
+        let slug = user
+            .email
             .split('@')
             .next()
             .unwrap_or("user")
@@ -166,14 +175,20 @@ impl OrgService {
         Self::create_org(pool, "Personal", &unique_slug, true, user.id).await
     }
 
-    pub async fn get_org_by_id(pool: &PgPool, org_id: Uuid) -> Result<Option<Organization>, sqlx::Error> {
+    pub async fn get_org_by_id(
+        pool: &PgPool,
+        org_id: Uuid,
+    ) -> Result<Option<Organization>, sqlx::Error> {
         sqlx::query_as::<_, Organization>(SQL_GET_ORG_BY_ID)
             .bind(org_id)
             .fetch_optional(pool)
             .await
     }
 
-    pub async fn get_org_by_slug(pool: &PgPool, slug: &str) -> Result<Option<Organization>, sqlx::Error> {
+    pub async fn get_org_by_slug(
+        pool: &PgPool,
+        slug: &str,
+    ) -> Result<Option<Organization>, sqlx::Error> {
         sqlx::query_as::<_, Organization>(SQL_GET_ORG_BY_SLUG)
             .bind(slug)
             .fetch_optional(pool)
@@ -181,7 +196,10 @@ impl OrgService {
     }
 
     /// List all organizations the user is a member of
-    pub async fn list_user_orgs(pool: &PgPool, user_id: Uuid) -> Result<Vec<OrgResponse>, sqlx::Error> {
+    pub async fn list_user_orgs(
+        pool: &PgPool,
+        user_id: Uuid,
+    ) -> Result<Vec<OrgResponse>, sqlx::Error> {
         #[derive(sqlx::FromRow)]
         struct OrgWithRole {
             id: Uuid,
@@ -198,14 +216,17 @@ impl OrgService {
             .fetch_all(pool)
             .await?;
 
-        Ok(orgs.into_iter().map(|o| OrgResponse {
-            id: o.id,
-            name: o.name,
-            slug: o.slug,
-            is_personal: o.is_personal,
-            role: o.role,
-            created_at: o.created_at,
-        }).collect())
+        Ok(orgs
+            .into_iter()
+            .map(|o| OrgResponse {
+                id: o.id,
+                name: o.name,
+                slug: o.slug,
+                is_personal: o.is_personal,
+                role: o.role,
+                created_at: o.created_at,
+            })
+            .collect())
     }
 
     pub async fn update_org(
@@ -231,7 +252,11 @@ impl OrgService {
     }
 
     /// Check if user has permission in org
-    pub async fn get_user_role(pool: &PgPool, org_id: Uuid, user_id: Uuid) -> Result<Option<String>, sqlx::Error> {
+    pub async fn get_user_role(
+        pool: &PgPool,
+        org_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Option<String>, sqlx::Error> {
         let member = sqlx::query_as::<_, OrgMember>(SQL_GET_MEMBER)
             .bind(org_id)
             .bind(user_id)
@@ -241,7 +266,11 @@ impl OrgService {
     }
 
     /// Check if user can perform admin actions (owner or admin role)
-    pub async fn can_admin(pool: &PgPool, org_id: Uuid, user_id: Uuid) -> Result<bool, sqlx::Error> {
+    pub async fn can_admin(
+        pool: &PgPool,
+        org_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
         let role = Self::get_user_role(pool, org_id, user_id).await?;
         Ok(matches!(role.as_deref(), Some("owner") | Some("admin")))
     }
@@ -264,7 +293,10 @@ impl OrgService {
             .await
     }
 
-    pub async fn list_members(pool: &PgPool, org_id: Uuid) -> Result<Vec<OrgMemberResponse>, sqlx::Error> {
+    pub async fn list_members(
+        pool: &PgPool,
+        org_id: Uuid,
+    ) -> Result<Vec<OrgMemberResponse>, sqlx::Error> {
         #[derive(sqlx::FromRow)]
         struct MemberWithUser {
             id: Uuid,
@@ -282,15 +314,18 @@ impl OrgService {
             .fetch_all(pool)
             .await?;
 
-        Ok(members.into_iter().map(|m| OrgMemberResponse {
-            id: m.id,
-            user_id: m.user_id,
-            email: m.email,
-            name: m.name,
-            avatar_url: m.avatar_url,
-            role: m.role,
-            created_at: m.created_at,
-        }).collect())
+        Ok(members
+            .into_iter()
+            .map(|m| OrgMemberResponse {
+                id: m.id,
+                user_id: m.user_id,
+                email: m.email,
+                name: m.name,
+                avatar_url: m.avatar_url,
+                role: m.role,
+                created_at: m.created_at,
+            })
+            .collect())
     }
 
     pub async fn update_member_role(
@@ -305,7 +340,7 @@ impl OrgService {
                 .bind(org_id)
                 .fetch_one(pool)
                 .await?;
-            
+
             let current_role = Self::get_user_role(pool, org_id, user_id).await?;
             if current_role.as_deref() == Some("owner") && count.0 <= 1 {
                 return Ok(false); // Can't demote the last owner
@@ -321,7 +356,11 @@ impl OrgService {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn remove_member(pool: &PgPool, org_id: Uuid, user_id: Uuid) -> Result<bool, sqlx::Error> {
+    pub async fn remove_member(
+        pool: &PgPool,
+        org_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
         // Prevent removing the last owner
         let current_role = Self::get_user_role(pool, org_id, user_id).await?;
         if current_role.as_deref() == Some("owner") {
@@ -393,7 +432,10 @@ impl OrgService {
             .await
     }
 
-    pub async fn get_invite_by_token(pool: &PgPool, token: &str) -> Result<Option<crate::models::organization::OrgInvite>, sqlx::Error> {
+    pub async fn get_invite_by_token(
+        pool: &PgPool,
+        token: &str,
+    ) -> Result<Option<crate::models::organization::OrgInvite>, sqlx::Error> {
         sqlx::query_as::<_, crate::models::organization::OrgInvite>(SQL_GET_INVITE_BY_TOKEN)
             .bind(token)
             .fetch_optional(pool)
@@ -425,11 +467,11 @@ impl OrgService {
             JOIN org_members om ON o.id = om.org_id
             WHERE om.user_id = $1 AND om.role = 'owner'
             AND (SELECT COUNT(*) FROM org_members WHERE org_id = o.id AND role = 'owner') = 1
-            "#
+            "#,
         )
-            .bind(user_id)
-            .fetch_all(&mut *tx)
-            .await?;
+        .bind(user_id)
+        .fetch_all(&mut *tx)
+        .await?;
 
         // 2. Delete these orgs (CASCADE will handle resources)
         for org in &owned_orgs {
@@ -465,7 +507,10 @@ impl OrgService {
     }
 
     /// Preview what will be deleted when deleting a user account
-    pub async fn preview_account_deletion(pool: &PgPool, user_id: Uuid) -> Result<Vec<OrgResponse>, sqlx::Error> {
+    pub async fn preview_account_deletion(
+        pool: &PgPool,
+        user_id: Uuid,
+    ) -> Result<Vec<OrgResponse>, sqlx::Error> {
         // Find all orgs where this user is the ONLY owner (these will be deleted)
         #[derive(sqlx::FromRow)]
         struct OrgWithRole {
@@ -482,20 +527,23 @@ impl OrgService {
             JOIN org_members om ON o.id = om.org_id
             WHERE om.user_id = $1 AND om.role = 'owner'
             AND (SELECT COUNT(*) FROM org_members WHERE org_id = o.id AND role = 'owner') = 1
-            "#
+            "#,
         )
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?;
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
 
-        Ok(owned_orgs.into_iter().map(|o| OrgResponse {
-            id: o.id,
-            name: o.name,
-            slug: o.slug,
-            is_personal: o.is_personal,
-            role: "owner".to_string(),
-            created_at: o.created_at,
-        }).collect())
+        Ok(owned_orgs
+            .into_iter()
+            .map(|o| OrgResponse {
+                id: o.id,
+                name: o.name,
+                slug: o.slug,
+                is_personal: o.is_personal,
+                role: "owner".to_string(),
+                created_at: o.created_at,
+            })
+            .collect())
     }
 }
 
@@ -535,7 +583,10 @@ impl IdentityService {
     }
 
     /// List all linked identities for a user
-    pub async fn list_user_identities(pool: &PgPool, user_id: Uuid) -> Result<Vec<UserIdentity>, sqlx::Error> {
+    pub async fn list_user_identities(
+        pool: &PgPool,
+        user_id: Uuid,
+    ) -> Result<Vec<UserIdentity>, sqlx::Error> {
         sqlx::query_as::<_, UserIdentity>(SQL_LIST_USER_IDENTITIES)
             .bind(user_id)
             .fetch_all(pool)
@@ -560,12 +611,14 @@ impl AuthService {
         avatar_url: Option<&str>,
     ) -> Result<(User, Organization), sqlx::Error> {
         // 1. Check if identity already exists
-        if let Some(identity) = IdentityService::find_by_provider(pool, provider, provider_user_id).await? {
+        if let Some(identity) =
+            IdentityService::find_by_provider(pool, provider, provider_user_id).await?
+        {
             let user = sqlx::query_as::<_, User>(SQL_GET_USER_BY_ID)
                 .bind(identity.user_id)
                 .fetch_one(pool)
                 .await?;
-            
+
             // Update last login
             sqlx::query(SQL_UPDATE_USER_LOGIN)
                 .bind(user.id)
@@ -593,8 +646,9 @@ impl AuthService {
             .await?
         {
             // Link new identity to existing user
-            IdentityService::create_or_link(pool, existing_user.id, provider, provider_user_id).await?;
-            
+            IdentityService::create_or_link(pool, existing_user.id, provider, provider_user_id)
+                .await?;
+
             // Update last login
             sqlx::query(SQL_UPDATE_USER_LOGIN)
                 .bind(existing_user.id)

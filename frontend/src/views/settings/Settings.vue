@@ -75,6 +75,21 @@
             </div>
             <ChevronRightIcon class="w-5 h-5 text-gray-500 shrink-0" />
           </router-link>
+
+          <!-- System Configuration - visible to all but editable by admins -->
+          <router-link 
+            to="/settings/configuration"
+            class="card hover:border-violet-500/50 transition-all group flex items-center gap-4"
+          >
+            <div class="w-12 h-12 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
+              <AdjustmentsHorizontalIcon class="w-6 h-6 text-violet-400" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="font-medium group-hover:text-violet-400 transition-colors">System Configuration</h3>
+              <p class="text-sm text-gray-400">Retention policies, intervals, and limits</p>
+            </div>
+            <ChevronRightIcon class="w-5 h-5 text-gray-500 shrink-0" />
+          </router-link>
         </div>
       </div>
 
@@ -295,7 +310,7 @@ import { ref, computed } from 'vue'
 // import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
-import { UsersIcon, ChevronRightIcon, TrashIcon, KeyIcon, ExclamationTriangleIcon, CogIcon } from '@heroicons/vue/24/outline'
+import { UsersIcon, ChevronRightIcon, TrashIcon, KeyIcon, ExclamationTriangleIcon, CogIcon, AdjustmentsHorizontalIcon } from '@heroicons/vue/24/outline'
 import GoogleIcon from '@/components/icons/GoogleIcon.vue'
 import GitHubIcon from '@/components/icons/GitHubIcon.vue'
 import MicrosoftIcon from '@/components/icons/MicrosoftIcon.vue'

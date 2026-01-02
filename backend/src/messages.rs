@@ -22,8 +22,9 @@ pub mod error {
     pub const SERVER_EXISTS: &str = "Server with this name already exists";
     pub const INVALID_PREFIX_FORMAT: &str = "Prefix must be alphanumeric with underscores only";
     pub const MUTUALLY_EXCLUSIVE: &str = "Cannot specify both allowed_tools and denied_tools";
-    pub const INVALID_SERVER_NAME: &str = "Invalid server name. Use only letters, numbers, hyphens, and underscores";
-    
+    pub const INVALID_SERVER_NAME: &str =
+        "Invalid server name. Use only letters, numbers, hyphens, and underscores";
+
     pub const CIPHER_CREATE_FAILED: &str = "Failed to create cipher";
     pub const ENCRYPTION_FAILED: &str = "Encryption failed";
     pub const BASE64_DECODE_FAILED: &str = "Base64 decode failed";

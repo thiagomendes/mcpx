@@ -178,24 +178,32 @@ impl PgPatRepository {
 #[async_trait]
 impl PatRepository for PgPatRepository {
     async fn find_by_hash(&self, token_hash: &str) -> RepoResult<Option<PatData>> {
-        let row: Option<(Uuid, Uuid, Uuid, String, sqlx::types::Json<Vec<String>>, Option<chrono::DateTime<chrono::Utc>>)> = 
-            sqlx::query_as(
-                r#"SELECT id, user_id, org_id, name, scopes, expires_at
+        let row: Option<(
+            Uuid,
+            Uuid,
+            Uuid,
+            String,
+            sqlx::types::Json<Vec<String>>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        )> = sqlx::query_as(
+            r#"SELECT id, user_id, org_id, name, scopes, expires_at
                    FROM personal_access_tokens
-                   WHERE token_hash = $1"#
-            )
-            .bind(token_hash)
-            .fetch_optional(&self.pool)
-            .await?;
+                   WHERE token_hash = $1"#,
+        )
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await?;
 
-        Ok(row.map(|(id, user_id, org_id, name, scopes, expires_at)| PatData {
-            id,
-            user_id,
-            org_id,
-            name,
-            scopes: scopes.0,
-            expires_at,
-        }))
+        Ok(
+            row.map(|(id, user_id, org_id, name, scopes, expires_at)| PatData {
+                id,
+                user_id,
+                org_id,
+                name,
+                scopes: scopes.0,
+                expires_at,
+            }),
+        )
     }
 
     async fn update_last_used(&self, id: Uuid) -> RepoResult<()> {
@@ -228,7 +236,7 @@ impl ServiceAccountRepository for PgServiceAccountRepository {
         let row: Option<(Uuid, Uuid, serde_json::Value)> = sqlx::query_as(
             r#"SELECT id, org_id, scopes
                FROM service_accounts
-               WHERE client_id = $1 AND client_secret_hash = $2 AND enabled = true"#
+               WHERE client_id = $1 AND client_secret_hash = $2 AND enabled = true"#,
         )
         .bind(client_id)
         .bind(secret_hash)
@@ -467,7 +475,11 @@ pub mod mocks {
 
     #[async_trait]
     impl GatewayRepository for MockGatewayRepository {
-        async fn find_by_slug(&self, _org_id: Uuid, _slug: &str) -> RepoResult<Option<GatewayData>> {
+        async fn find_by_slug(
+            &self,
+            _org_id: Uuid,
+            _slug: &str,
+        ) -> RepoResult<Option<GatewayData>> {
             Ok(self.gateway.lock().unwrap().clone())
         }
 
@@ -494,10 +506,10 @@ pub mod mocks {
                 scopes: vec!["mcp:server:read".to_string()],
                 expires_at: None,
             };
-            
+
             let repo = MockPatRepository::with_pat(pat.clone());
             let result = repo.find_by_hash("any-hash").await.unwrap();
-            
+
             assert!(result.is_some());
             assert_eq!(result.unwrap().name, "Test PAT");
         }
@@ -516,10 +528,10 @@ pub mod mocks {
                 org_id: Uuid::new_v4(),
                 scopes: vec!["mcp:tool:execute".to_string()],
             };
-            
+
             let repo = MockServiceAccountRepository::with_account(account.clone());
             let result = repo.validate_credentials("client", "hash").await.unwrap();
-            
+
             assert!(result.is_some());
             assert_eq!(result.unwrap().scopes.len(), 1);
         }
@@ -532,10 +544,10 @@ pub mod mocks {
                 slug: "test-org".to_string(),
                 is_personal: false,
             };
-            
+
             let repo = MockOrgRepository::with_org(org.clone());
             let result = repo.find_by_id(org.id).await.unwrap();
-            
+
             assert!(result.is_some());
             assert_eq!(result.unwrap().name, "Test Org");
         }
@@ -552,10 +564,13 @@ pub mod mocks {
                 org,
                 role: "admin".to_string(),
             };
-            
+
             let repo = MockOrgRepository::with_membership(membership);
-            let result = repo.get_user_role(Uuid::new_v4(), Uuid::new_v4()).await.unwrap();
-            
+            let result = repo
+                .get_user_role(Uuid::new_v4(), Uuid::new_v4())
+                .await
+                .unwrap();
+
             assert!(result.is_some());
             assert_eq!(result.unwrap(), "admin");
         }
@@ -571,10 +586,13 @@ pub mod mocks {
                 enabled: true,
                 auth_type: "none".to_string(),
             };
-            
+
             let repo = MockServerRepository::with_server(server.clone());
-            let result = repo.find_by_name(server.org_id, "test-server").await.unwrap();
-            
+            let result = repo
+                .find_by_name(server.org_id, "test-server")
+                .await
+                .unwrap();
+
             assert!(result.is_some());
             assert_eq!(result.unwrap().name, "test-server");
         }
@@ -599,10 +617,10 @@ pub mod mocks {
                 enabled: true,
                 auth_type: "bearer".to_string(),
             };
-            
+
             let repo = MockServerRepository::with_servers(vec![server1.clone(), server2]);
             let result = repo.list_by_org(server1.org_id).await.unwrap();
-            
+
             assert_eq!(result.len(), 2);
         }
 
@@ -615,10 +633,13 @@ pub mod mocks {
                 slug: "test-gateway".to_string(),
                 enabled: true,
             };
-            
+
             let repo = MockGatewayRepository::with_gateway(gateway.clone());
-            let result = repo.find_by_slug(gateway.org_id, "test-gateway").await.unwrap();
-            
+            let result = repo
+                .find_by_slug(gateway.org_id, "test-gateway")
+                .await
+                .unwrap();
+
             assert!(result.is_some());
             assert_eq!(result.unwrap().slug, "test-gateway");
         }
@@ -644,10 +665,10 @@ pub mod mocks {
                     priority: 1,
                 },
             ];
-            
+
             let repo = MockGatewayRepository::with_servers(gateway.clone(), servers);
             let result = repo.get_servers(gateway.id).await.unwrap();
-            
+
             assert_eq!(result.len(), 2);
             assert_eq!(result[0].server_name, "server-1");
         }

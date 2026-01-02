@@ -97,6 +97,12 @@ const router = createRouter({
             meta: { requiresAuth: true },
         },
         {
+            path: '/settings/configuration',
+            name: 'configuration',
+            component: () => import('@/views/settings/Configuration.vue'),
+            meta: { requiresAuth: true },
+        },
+        {
             path: '/oauth/callback',
             name: 'oauth-callback',
             component: () => import('@/views/OAuthCallback.vue'),

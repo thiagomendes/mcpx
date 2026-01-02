@@ -9,13 +9,14 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::AppState;
-use crate::routes::auth::extract_org_context;
 use crate::messages::error;
+use crate::middleware::auth::AuthUser;
+use crate::middleware::permissions::Permission;
+use crate::AppState;
 
 // ============================================
 // TYPES
@@ -38,7 +39,7 @@ pub struct ServiceAccountCreatedResponse {
     pub id: Uuid,
     pub name: String,
     pub client_id: String,
-    pub client_secret: String,  // Only shown once!
+    pub client_secret: String, // Only shown once!
     pub scopes: serde_json::Value,
 }
 
@@ -155,15 +156,20 @@ fn hash_secret(secret: &str) -> String {
 /// GET /api/service-accounts - List org's service accounts
 pub async fn list_service_accounts(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<Json<Vec<ServiceAccountResponse>>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let rows: Vec<ServiceAccountRow> = sqlx::query_as(SQL_LIST_SERVICE_ACCOUNTS)
         .bind(org_id)
         .fetch_all(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     let accounts: Vec<ServiceAccountResponse> = rows
         .into_iter()
@@ -185,10 +191,47 @@ pub async fn list_service_accounts(
 /// POST /api/service-accounts - Create new service account
 pub async fn create_service_account(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Json(payload): Json<CreateServiceAccountRequest>,
 ) -> Result<Json<ServiceAccountCreatedResponse>, (StatusCode, String)> {
-    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::ServiceAccountsWrite)?;
+
+    let org_id = auth.org_id;
+    let user_id = auth.user_id;
+
+    // Check max_service_accounts_per_org limit
+    let max_sas = crate::routes::settings::get_org_setting_value(
+        &state.db,
+        org_id,
+        "max_service_accounts_per_org",
+        "20",
+    )
+    .await
+    .parse::<i64>()
+    .unwrap_or(20);
+
+    let current_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM service_accounts WHERE org_id = $1")
+            .bind(org_id)
+            .fetch_one(&state.db.pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("{}: {}", error::DATABASE_ERROR, e),
+                )
+            })?;
+
+    if current_count.0 >= max_sas {
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Service account limit reached. Maximum {} per organization.",
+                max_sas
+            ),
+        ));
+    }
 
     // Validate name
     if payload.name.trim().is_empty() {
@@ -212,7 +255,12 @@ pub async fn create_service_account(
         .bind(user_id)
         .fetch_one(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     tracing::info!("Service account created: {} ({})", row.1, client_id);
 
@@ -221,7 +269,7 @@ pub async fn create_service_account(
         id: row.0,
         name: row.1,
         client_id: row.2,
-        client_secret,  // This is the only time it's visible!
+        client_secret, // This is the only time it's visible!
         scopes: row.3,
     }))
 }
@@ -229,19 +277,27 @@ pub async fn create_service_account(
 /// GET /api/service-accounts/:id - Get service account details
 pub async fn get_service_account(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(account_id): Path<Uuid>,
 ) -> Result<Json<ServiceAccountResponse>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let row: Option<ServiceAccountRow> = sqlx::query_as(SQL_GET_SERVICE_ACCOUNT)
         .bind(account_id)
         .bind(org_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
-    let row = row.ok_or((StatusCode::NOT_FOUND, "Service account not found".to_string()))?;
+    let row = row.ok_or((
+        StatusCode::NOT_FOUND,
+        "Service account not found".to_string(),
+    ))?;
 
     Ok(Json(ServiceAccountResponse {
         id: row.id,
@@ -258,13 +314,18 @@ pub async fn get_service_account(
 /// PUT /api/service-accounts/:id - Update service account
 pub async fn update_service_account(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(account_id): Path<Uuid>,
     Json(payload): Json<UpdateServiceAccountRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::ServiceAccountsWrite)?;
 
-    let scopes_json = payload.scopes.map(|s| serde_json::to_value(s).unwrap_or_default());
+    let org_id = auth.org_id;
+
+    let scopes_json = payload
+        .scopes
+        .map(|s| serde_json::to_value(s).unwrap_or_default());
 
     let result = sqlx::query(SQL_UPDATE_SERVICE_ACCOUNT)
         .bind(&payload.name)
@@ -275,10 +336,18 @@ pub async fn update_service_account(
         .bind(org_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, "Service account not found".to_string()));
+        return Err((
+            StatusCode::NOT_FOUND,
+            "Service account not found".to_string(),
+        ));
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -287,20 +356,31 @@ pub async fn update_service_account(
 /// DELETE /api/service-accounts/:id - Delete service account
 pub async fn delete_service_account(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(account_id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::ServiceAccountsWrite)?;
+
+    let org_id = auth.org_id;
 
     let result = sqlx::query(SQL_DELETE_SERVICE_ACCOUNT)
         .bind(account_id)
         .bind(org_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, "Service account not found".to_string()));
+        return Err((
+            StatusCode::NOT_FOUND,
+            "Service account not found".to_string(),
+        ));
     }
 
     tracing::info!("Service account deleted: {}", account_id);
@@ -331,12 +411,13 @@ pub async fn validate_service_account(
     client_secret: &str,
 ) -> Result<Option<ServiceAccountValidationResult>, sqlx::Error> {
     let secret_hash = hash_secret(client_secret);
-    
-    let result: Option<ServiceAccountValidationResult> = sqlx::query_as(SQL_VALIDATE_SERVICE_ACCOUNT)
-        .bind(client_id)
-        .bind(&secret_hash)
-        .fetch_optional(pool)
-        .await?;
+
+    let result: Option<ServiceAccountValidationResult> =
+        sqlx::query_as(SQL_VALIDATE_SERVICE_ACCOUNT)
+            .bind(client_id)
+            .bind(&secret_hash)
+            .fetch_optional(pool)
+            .await?;
 
     // Update last_used_at if found
     if let Some(ref account) = result {
@@ -430,7 +511,7 @@ mod tests {
 // REPOSITORY-BASED VALIDATION (for testing)
 // ============================================
 
-use crate::services::repositories::{ServiceAccountRepository, ServiceAccountData};
+use crate::services::repositories::{ServiceAccountData, ServiceAccountRepository};
 
 /// Validate service account credentials using repository trait (testable)
 #[allow(dead_code)]
@@ -458,7 +539,9 @@ mod validation_tests {
     #[tokio::test]
     async fn validate_returns_none_when_not_found() {
         let repo = MockServiceAccountRepository::new();
-        let result = validate_credentials_with_repo(&repo, "client_id", "secret").await.unwrap();
+        let result = validate_credentials_with_repo(&repo, "client_id", "secret")
+            .await
+            .unwrap();
         assert!(result.is_none());
     }
 
@@ -467,12 +550,17 @@ mod validation_tests {
         let account = ServiceAccountData {
             id: Uuid::new_v4(),
             org_id: Uuid::new_v4(),
-            scopes: vec!["mcp:server:read".to_string(), "mcp:tool:execute".to_string()],
+            scopes: vec![
+                "mcp:server:read".to_string(),
+                "mcp:tool:execute".to_string(),
+            ],
         };
         let repo = MockServiceAccountRepository::with_account(account.clone());
-        
-        let result = validate_credentials_with_repo(&repo, "client", "secret").await.unwrap();
-        
+
+        let result = validate_credentials_with_repo(&repo, "client", "secret")
+            .await
+            .unwrap();
+
         assert!(result.is_some());
         let found = result.unwrap();
         assert_eq!(found.scopes.len(), 2);
@@ -486,9 +574,11 @@ mod validation_tests {
             scopes: vec!["mcp:server:read".to_string()],
         };
         let repo = MockServiceAccountRepository::with_account(account);
-        
-        let result = validate_credentials_with_repo(&repo, "client", "secret").await.unwrap();
-        
+
+        let result = validate_credentials_with_repo(&repo, "client", "secret")
+            .await
+            .unwrap();
+
         assert!(result.is_some());
         let scopes = result.unwrap().scopes;
         assert!(scopes.contains(&"mcp:server:read".to_string()));
