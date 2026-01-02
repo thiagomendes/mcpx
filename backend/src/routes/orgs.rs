@@ -12,8 +12,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::routes::auth::extract_org_context;
 use crate::messages::error;
+use crate::middleware::auth::AuthUser;
 
 // ============================================
 // TYPES
@@ -60,9 +60,9 @@ const SQL_LIST_MEMBERS: &str = r#"
 /// GET /api/orgs/members - List org members
 pub async fn list_members(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<Json<Vec<OrgMemberResponse>>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let members = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<String>, String, chrono::DateTime<chrono::Utc>)>(SQL_LIST_MEMBERS)
         .bind(org_id)
@@ -95,10 +95,11 @@ pub struct InviteResponse {
 /// POST /api/orgs/members/invite - Invite a new member
 pub async fn invite_member(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Json(payload): Json<InviteMemberRequest>,
 ) -> Result<Json<InviteResponse>, (StatusCode, String)> {
-    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
+    let org_id = auth.org_id;
     
     // 1. Check permissions (Owner/Admin only)
     if !crate::services::org::OrgService::can_admin(&state.db.pool, org_id, user_id).await
@@ -171,10 +172,10 @@ pub async fn get_invite_details(
 /// POST /api/orgs/join/:token - Accept an invite
 pub async fn join_org(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(token): Path<String>,
 ) -> Result<Json<OrgMemberResponse>, (StatusCode, String)> {
-    let (user_id, _current_org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
 
     // 1. Get invite
     let invite = crate::services::org::OrgService::get_invite_by_token(&state.db.pool, &token)
@@ -242,10 +243,10 @@ pub struct OrgResponse {
 /// POST /api/orgs - Create a new organization
 pub async fn create_org(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Json(payload): Json<CreateOrgRequest>,
 ) -> Result<Json<OrgResponse>, (StatusCode, String)> {
-    let (user_id, _org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
 
     // Generate slug from name
     let slug = payload.name
@@ -288,10 +289,10 @@ pub async fn create_org(
 /// DELETE /api/orgs/:id - Delete an organization (Owner only)
 pub async fn delete_org(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(target_org_id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (user_id, _current_org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
 
     // 1. Check if user is OWNER of the target org
     let role = crate::services::org::OrgService::get_user_role(&state.db.pool, target_org_id, user_id)
@@ -324,10 +325,11 @@ pub async fn delete_org(
 /// DELETE /api/orgs/members/:user_id - Remove a member (Owner/Admin only)
 pub async fn remove_member(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(target_user_id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
+    let org_id = auth.org_id;
 
     // 1. Check permissions (Owner/Admin only)
     if !crate::services::org::OrgService::can_admin(&state.db.pool, org_id, user_id).await
@@ -363,9 +365,9 @@ pub async fn remove_member(
 /// - Delete the user account
 pub async fn delete_account(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (user_id, _org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
 
     // Perform account deletion
     crate::services::org::OrgService::delete_user_account(&state.db.pool, user_id)
@@ -393,9 +395,9 @@ pub struct OrgToDelete {
 /// GET /api/account/deletion-preview - Preview what will be deleted
 pub async fn preview_account_deletion(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<Json<AccountDeletionPreview>, (StatusCode, String)> {
-    let (user_id, _org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
 
     // Get user email
     let user = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1")

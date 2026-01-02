@@ -8,8 +8,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::routes::auth::extract_org_context;
 use crate::messages::error;
+use crate::middleware::auth::AuthUser;
 
 const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND org_id = $2";
 const SQL_DELETE_GOVERNANCE: &str = "DELETE FROM governance_configs WHERE server_id = $1";
@@ -82,10 +82,10 @@ fn json_to_vec(value: &serde_json::Value) -> Vec<String> {
 
 pub async fn get_governance(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(name): Path<String>,
 ) -> Result<Json<GovernanceResponse>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
     let server_id = get_server_id(&state, org_id, &name).await?;
 
     let config: Option<GovernanceConfig> = sqlx::query_as(SQL_SELECT_GOVERNANCE)
@@ -116,11 +116,11 @@ pub async fn get_governance(
 
 pub async fn set_governance(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(name): Path<String>,
     Json(payload): Json<CreateGovernanceRequest>,
 ) -> Result<(StatusCode, Json<GovernanceResponse>), (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
     let server_id = get_server_id(&state, org_id, &name).await?;
 
     if !payload.allowed_tools.is_empty() && !payload.denied_tools.is_empty() {
@@ -158,10 +158,10 @@ pub async fn set_governance(
 
 pub async fn delete_governance(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(name): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
     let server_id = get_server_id(&state, org_id, &name).await?;
 
     sqlx::query(SQL_DELETE_GOVERNANCE)

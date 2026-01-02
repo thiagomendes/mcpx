@@ -168,8 +168,12 @@ pub async fn oauth_callback(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
 
     // Create JWT with org context
+    let jwt_expiry_days = crate::routes::settings::get_org_setting_value(
+        &state.db, org.id, "jwt_expiry_days", "30"
+    ).await.parse::<i64>().unwrap_or(30);
+    
     let expiration = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::days(30))
+        .checked_add_signed(chrono::Duration::days(jwt_expiry_days))
         .unwrap()
         .timestamp() as usize;
 
@@ -280,8 +284,12 @@ pub async fn switch_org(
         .ok_or((StatusCode::NOT_FOUND, "Organization not found".to_string()))?;
 
     // Create new JWT with new org context
+    let jwt_expiry_days = crate::routes::settings::get_org_setting_value(
+        &state.db, org.id, "jwt_expiry_days", "30"
+    ).await.parse::<i64>().unwrap_or(30);
+    
     let expiration = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::days(30))
+        .checked_add_signed(chrono::Duration::days(jwt_expiry_days))
         .unwrap()
         .timestamp() as usize;
 
@@ -358,17 +366,112 @@ pub fn get_dev_user_id() -> Option<Uuid> {
     }
 }
 
-/// Extract org context from JWT claims
+/// Extract org context from JWT claims (web session only - for backward compatibility)
 pub fn extract_org_context(headers: &axum::http::HeaderMap, secret: &str) -> Result<(Uuid, Uuid, String), (StatusCode, String)> {
     let token = extract_token(headers)?;
-    let claims = validate_token(&token, secret)?;
     
-    let user_id = Uuid::parse_str(&claims.sub)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))?;
-    let org_id = Uuid::parse_str(&claims.org_id)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))?;
+    // For backward compatibility, try JWT first
+    if token.starts_with("ey") {
+        let claims = validate_token(&token, secret)?;
+        
+        let user_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))?;
+        let org_id = Uuid::parse_str(&claims.org_id)
+            .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))?;
+        
+        return Ok((user_id, org_id, claims.org_slug));
+    }
     
-    Ok((user_id, org_id, claims.org_slug))
+    // PAT and M2M need async DB access - use extract_org_context_async instead
+    Err((StatusCode::UNAUTHORIZED, "Use extract_org_context_async for PAT/M2M tokens".to_string()))
+}
+
+/// Extract org context supporting PAT, M2M, and web JWT tokens
+pub async fn extract_org_context_async(
+    headers: &axum::http::HeaderMap, 
+    secret: &str,
+    pool: &sqlx::PgPool
+) -> Result<(Uuid, Uuid, String, String), (StatusCode, String)> {
+    let token = extract_token(headers)?;
+    
+    // PAT token
+    if token.starts_with("mcpx_pat_") {
+        let pat = crate::routes::pat::validate_pat(pool, &token)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+            .ok_or((StatusCode::UNAUTHORIZED, "Invalid or expired PAT".to_string()))?;
+        
+        // Get org_slug
+        let org_slug: String = sqlx::query_scalar("SELECT slug FROM organizations WHERE id = $1")
+            .bind(pat.org_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+            .unwrap_or_default();
+        
+        // Get role from org_members
+        let role: String = sqlx::query_scalar("SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2")
+            .bind(pat.org_id)
+            .bind(pat.user_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+            .unwrap_or_else(|| "member".to_string());
+        
+        return Ok((pat.user_id, pat.org_id, org_slug, role));
+    }
+    
+    // JWT token (M2M or web session)
+    if token.starts_with("ey") {
+        use jsonwebtoken::{decode, DecodingKey, Validation};
+        
+        // Try M2M first
+        if let Ok(token_data) = decode::<M2MClaims>(
+            &token,
+            &DecodingKey::from_secret(secret.as_bytes()),
+            &Validation::default(),
+        ) {
+            let claims = token_data.claims;
+            if claims.token_type == "m2m" {
+                let sa_id = Uuid::parse_str(&claims.sub)
+                    .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid service account ID".to_string()))?;
+                let org_id = Uuid::parse_str(&claims.org_id)
+                    .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid org ID".to_string()))?;
+                
+                // Get role from service_accounts
+                let role: String = sqlx::query_scalar("SELECT role FROM service_accounts WHERE id = $1 AND org_id = $2")
+                    .bind(sa_id)
+                    .bind(org_id)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+                    .unwrap_or_else(|| "member".to_string());
+                
+                return Ok((sa_id, org_id, claims.org_slug, role));
+            }
+        }
+        
+        // Web session JWT
+        let claims = validate_token(&token, secret)?;
+        
+        let user_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))?;
+        let org_id = Uuid::parse_str(&claims.org_id)
+            .map_err(|_| (StatusCode::UNAUTHORIZED, error::INVALID_TOKEN.to_string()))?;
+        
+        // Get role from org_members
+        let role: String = sqlx::query_scalar("SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2")
+            .bind(org_id)
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+            .unwrap_or_else(|| "member".to_string());
+        
+        return Ok((user_id, org_id, claims.org_slug, role));
+    }
+    
+    Err((StatusCode::UNAUTHORIZED, "Invalid token format".to_string()))
 }
 
 // ============================================
@@ -441,6 +544,12 @@ pub async fn oauth_token(
     // Extract scopes from JSON
     let scopes: Vec<String> = serde_json::from_value(account.scopes.clone()).unwrap_or_default();
 
+    // Get configurable M2M token expiry (in hours)
+    let m2m_expiry_hours = crate::routes::settings::get_org_setting_value(
+        &state.db, account.org_id, "m2m_token_expiry_hours", "1"
+    ).await.parse::<i64>().unwrap_or(1);
+    let m2m_expiry_seconds = m2m_expiry_hours * 3600;
+
     // Create M2M JWT
     let now = chrono::Utc::now().timestamp();
     let claims = M2MClaims {
@@ -448,7 +557,7 @@ pub async fn oauth_token(
         org_id: account.org_id.to_string(),
         org_slug,
         scopes,
-        exp: now + M2M_TOKEN_EXPIRY_SECONDS,
+        exp: now + m2m_expiry_seconds,
         iat: now,
         iss: "mcpx".to_string(),
         token_type: "m2m".to_string(),
@@ -466,7 +575,7 @@ pub async fn oauth_token(
     Ok(Json(M2MTokenResponse {
         access_token: token,
         token_type: "Bearer".to_string(),
-        expires_in: M2M_TOKEN_EXPIRY_SECONDS,
+        expires_in: m2m_expiry_seconds,
     }))
 }
 

@@ -11,3 +11,4 @@ pub mod alerts;
 pub mod orgs;
 pub mod pat;
 pub mod service_accounts;
+pub mod settings;

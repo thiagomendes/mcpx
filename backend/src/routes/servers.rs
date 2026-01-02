@@ -11,6 +11,8 @@ use std::sync::Arc;
 use crate::AppState;
 use crate::models::server::{Server, ServerResponse, CreateServerRequest, UpdateServerRequest};
 use crate::routes::auth::extract_org_context;
+use crate::middleware::auth::AuthUser;
+use crate::middleware::permissions::Permission;
 
 use rmcp::{
     ServiceExt,
@@ -48,8 +50,8 @@ const SQL_UPDATE_SERVER: &str = r#"
 
 const SQL_DELETE_SERVER: &str = "DELETE FROM servers WHERE org_id = $1 AND name = $2";
 
-// Note: oauth_tokens still uses user_id because tokens are per-user, not per-org
-const SQL_SELECT_OAUTH_TOKEN: &str = "SELECT access_token_encrypted FROM oauth_tokens WHERE server_id = $1 AND user_id = $2";
+// Note: oauth_tokens now uses org_id - tokens are per-org, shared by all members
+const SQL_SELECT_OAUTH_TOKEN: &str = "SELECT access_token_encrypted FROM oauth_tokens WHERE server_id = $1 AND org_id = $2";
 
 const SQL_UPDATE_SERVER_STATUS: &str = "UPDATE servers SET status = 'healthy', last_health_check = NOW(), health_error = NULL, updated_at = NOW() WHERE id = $1";
 
@@ -63,9 +65,11 @@ const ERR_FAILED_TO_STORE_CREDENTIAL: &str = "Failed to store credential";
 
 pub async fn list_servers(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<Json<Vec<ServerResponse>>, (StatusCode, String)> {
-    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Use AuthUser for multi-token support (JWT, PAT, M2M)
+    let org_id = auth.org_id;
+    let org_slug = auth.org_slug;
 
     let servers = sqlx::query_as::<_, Server>(SQL_LIST_SERVERS)
         .bind(org_id)
@@ -84,10 +88,29 @@ pub async fn list_servers(
 
 pub async fn create_server(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Json(payload): Json<CreateServerRequest>,
 ) -> Result<(StatusCode, Json<ServerResponse>), (StatusCode, String)> {
-    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::ServersWrite)?;
+    
+    let org_id = auth.org_id;
+    let org_slug = auth.org_slug.clone();
+
+    // Check max_servers_per_org limit
+    let max_servers = crate::routes::settings::get_org_setting_value(
+        &state.db, org_id, "max_servers_per_org", "100"
+    ).await.parse::<i64>().unwrap_or(100);
+    
+    let current_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM servers WHERE org_id = $1")
+        .bind(org_id)
+        .fetch_one(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+    
+    if current_count.0 >= max_servers {
+        return Err((StatusCode::FORBIDDEN, format!("Server limit reached. Maximum {} servers per organization.", max_servers)));
+    }
 
     if !payload.name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
         return Err((StatusCode::BAD_REQUEST, error::INVALID_SERVER_NAME.to_string()));
@@ -179,10 +202,11 @@ pub async fn create_server(
 
 pub async fn get_server(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(name): Path<String>,
 ) -> Result<Json<ServerResponse>, (StatusCode, String)> {
-    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
+    let org_slug = auth.org_slug;
 
     let server = sqlx::query_as::<_, Server>(SQL_SELECT_SERVER_BY_NAME)
         .bind(org_id)
@@ -198,11 +222,15 @@ pub async fn get_server(
 
 pub async fn update_server(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(name): Path<String>,
     Json(payload): Json<UpdateServerRequest>,
 ) -> Result<Json<ServerResponse>, (StatusCode, String)> {
-    let (_user_id, org_id, org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::ServersWrite)?;
+    
+    let org_id = auth.org_id;
+    let org_slug = auth.org_slug.clone();
 
     let server = sqlx::query_as::<_, Server>(SQL_UPDATE_SERVER)
         .bind(org_id)
@@ -222,10 +250,13 @@ pub async fn update_server(
 
 pub async fn delete_server(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(name): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::ServersWrite)?;
+    
+    let org_id = auth.org_id;
 
     let result = sqlx::query(SQL_DELETE_SERVER)
         .bind(org_id)
@@ -245,10 +276,11 @@ const SQL_SELECT_CREDENTIAL: &str = "SELECT encrypted_value FROM credentials WHE
 
 pub async fn test_server(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(name): Path<String>,
 ) -> Result<Json<TestResult>, (StatusCode, String)> {
-    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
+    let org_id = auth.org_id;
 
     let server = sqlx::query_as::<_, Server>(SQL_SELECT_SERVER_BY_NAME)
         .bind(org_id)
@@ -315,10 +347,10 @@ pub async fn test_server(
             }
             Some("oauth_auto") => {
                 tracing::info!("Server {} requires OAuth, fetching token", name);
-                // OAuth tokens are per-user, so we still use user_id here
+                // OAuth tokens are now per-org (shared by all members)
                 let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_OAUTH_TOKEN)
                     .bind(server.id)
-                    .bind(user_id)
+                    .bind(org_id)
                     .fetch_optional(&state.db.pool)
                     .await
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;

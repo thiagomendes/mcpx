@@ -8,11 +8,23 @@
         </div>
         <button 
           @click="showCreateModal = true"
-          class="btn btn-primary flex items-center gap-2"
+          :disabled="limitReached"
+          :class="['btn flex items-center gap-2', limitReached ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary']"
         >
           <PlusIcon class="w-4 h-4" />
           New Token
         </button>
+      </div>
+
+      <!-- Limit Warning (only for admins) -->
+      <div v-if="limitReached" class="card bg-amber-500/20 border-amber-500/50 mb-4">
+        <div class="flex items-start gap-3">
+          <NoSymbolIcon class="w-5 h-5 text-amber-400 shrink-0" />
+          <p class="text-gray-300 text-sm">
+            You have {{ limitInfo.current }}/{{ limitInfo.max }} tokens. Delete one or increase the limit in 
+            <router-link to="/settings/configuration" class="text-violet-400 hover:underline">Configuration</router-link>.
+          </p>
+        </div>
       </div>
 
       <!-- Token List -->
@@ -186,9 +198,12 @@ import {
   TrashIcon, 
   ArrowLeftIcon,
   CheckIcon,
-  ClipboardDocumentIcon
+  ClipboardDocumentIcon,
+  NoSymbolIcon
 } from '@heroicons/vue/24/outline'
 import api from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
+import { usePermissions } from '@/composables/usePermissions'
 
 interface Token {
   id: string
@@ -200,6 +215,8 @@ interface Token {
   created_at: string
 }
 
+const authStore = useAuthStore()
+const { canWrite } = usePermissions()
 const tokens = ref<Token[]>([])
 const loading = ref(true)
 const showCreateModal = ref(false)
@@ -211,6 +228,23 @@ const createForm = ref({
 })
 const newToken = ref<string | null>(null)
 const copied = ref(false)
+const limitReached = ref(false)
+const limitInfo = ref({ current: 0, max: 0 })
+
+async function checkLimits() {
+  try {
+    const response = await fetch('/api/limits', {
+      headers: { 'Authorization': `Bearer ${authStore.token}` }
+    })
+    if (response.ok) {
+      const data = await response.json()
+      limitInfo.value = { current: data.pats.current, max: data.pats.max }
+      limitReached.value = !data.pats.can_create
+    }
+  } catch (e) {
+    console.error('Failed to check limits:', e)
+  }
+}
 
 async function loadTokens() {
   try {
@@ -283,5 +317,6 @@ function isExpired(dateStr: string) {
 
 onMounted(() => {
   loadTokens()
+  checkLimits()
 })
 </script>

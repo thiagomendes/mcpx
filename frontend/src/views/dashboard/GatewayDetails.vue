@@ -12,7 +12,7 @@
           </div>
           <p class="text-gray-400 font-mono text-sm">Slug: {{ gateway.slug }}</p>
         </div>
-        <div class="flex gap-2">
+        <div v-if="canWrite" class="flex gap-2">
           <button 
             @click="toggleEnabled" 
             :class="gateway.enabled ? 'btn btn-ghost text-yellow-400' : 'btn btn-secondary'"
@@ -88,7 +88,7 @@
             <ServerIcon class="w-5 h-5 text-primary" />
             Servers ({{ gateway.servers.length }})
           </h3>
-          <button @click="showAddServerModal = true" class="btn btn-secondary text-sm flex items-center gap-2">
+          <button v-if="canWrite" @click="showAddServerModal = true" class="btn btn-secondary text-sm flex items-center gap-2">
             <PlusIcon class="w-4 h-4" />
             Add Server
           </button>
@@ -109,6 +109,7 @@
               <div class="text-gray-400 text-xs">Priority: {{ server.priority }}</div>
             </div>
             <button 
+              v-if="canWrite"
               @click="removeServer(server.name)" 
               class="text-red-400 hover:text-red-300"
               title="Remove server"
@@ -190,6 +191,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/api/client'
+import { usePermissions } from '@/composables/usePermissions'
 
 interface GatewayTool {
   name: string
@@ -198,6 +200,7 @@ interface GatewayTool {
 
 const route = useRoute()
 const router = useRouter()
+const { canWrite } = usePermissions()
 const gatewaysStore = useGatewaysStore()
 const serversStore = useServersStore()
 const authStore = useAuthStore()

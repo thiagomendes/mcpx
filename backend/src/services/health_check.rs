@@ -324,16 +324,16 @@ async fn discover_oauth_endpoints(server_url: &str) -> Result<(String, String), 
 }
 
 async fn try_refresh_token(db: &Database, server_id: Uuid, encryption_key: &str) -> Result<String, String> {
-    // 1. Fetch refresh token, user_id, and dynamic_client_id from oauth_tokens
+    // 1. Fetch refresh token, org_id, and dynamic_client_id from oauth_tokens
     let token_row: Option<(String, Uuid, Option<String>)> = sqlx::query_as(
-        "SELECT refresh_token_encrypted, user_id, dynamic_client_id FROM oauth_tokens WHERE server_id = $1 AND refresh_token_encrypted IS NOT NULL LIMIT 1"
+        "SELECT refresh_token_encrypted, org_id, dynamic_client_id FROM oauth_tokens WHERE server_id = $1 AND refresh_token_encrypted IS NOT NULL LIMIT 1"
     )
     .bind(server_id)
     .fetch_optional(&db.pool)
     .await
     .map_err(|e| format!("Failed to fetch refresh token: {}", e))?;
     
-    let (refresh_encrypted, user_id, dynamic_client_id) = token_row
+    let (refresh_encrypted, org_id, dynamic_client_id) = token_row
         .ok_or("No refresh token available for this server")?;
     
     // 2. Fetch server OAuth config (token_url, client_id, and server URL for discovery)
@@ -430,24 +430,24 @@ async fn try_refresh_token(db: &Database, server_id: Uuid, encryption_key: &str)
     // 7. Update oauth_tokens in database
     if let Some(ref new_refresh) = new_refresh_encrypted {
         sqlx::query(
-            "UPDATE oauth_tokens SET access_token_encrypted = $1, refresh_token_encrypted = $2, expires_at = $3, updated_at = NOW() WHERE server_id = $4 AND user_id = $5"
+            "UPDATE oauth_tokens SET access_token_encrypted = $1, refresh_token_encrypted = $2, expires_at = $3, updated_at = NOW() WHERE server_id = $4 AND org_id = $5"
         )
         .bind(&new_access_encrypted)
         .bind(new_refresh)
         .bind(expires_at)
         .bind(server_id)
-        .bind(user_id)
+        .bind(org_id)
         .execute(&db.pool)
         .await
         .map_err(|e| format!("Failed to update tokens in database: {}", e))?;
     } else {
         sqlx::query(
-            "UPDATE oauth_tokens SET access_token_encrypted = $1, expires_at = $2, updated_at = NOW() WHERE server_id = $3 AND user_id = $4"
+            "UPDATE oauth_tokens SET access_token_encrypted = $1, expires_at = $2, updated_at = NOW() WHERE server_id = $3 AND org_id = $4"
         )
         .bind(&new_access_encrypted)
         .bind(expires_at)
         .bind(server_id)
-        .bind(user_id)
+        .bind(org_id)
         .execute(&db.pool)
         .await
         .map_err(|e| format!("Failed to update tokens in database: {}", e))?;

@@ -215,6 +215,12 @@ async fn main() {
         .route("/api/service-accounts/:id", delete(routes::service_accounts::delete_service_account))
         .route("/api/auth/token", post(routes::auth::oauth_token))
     
+        // Organization Settings
+        .route("/api/settings", get(routes::settings::list_settings))
+        .route("/api/settings/:key", get(routes::settings::get_setting))
+        .route("/api/settings/:key", put(routes::settings::update_setting))
+        .route("/api/limits", get(routes::settings::get_limits))
+    
         // MCP Proxy - now uses org_slug instead of user_id
         .route("/mcp/:org_slug/:server_name", post(routes::proxy::mcp_proxy))
     

@@ -7,12 +7,25 @@
           <p class="text-gray-400">Create service accounts for automated systems and CI/CD pipelines</p>
         </div>
         <button 
+          v-if="canWrite"
           @click="showCreateModal = true"
-          class="btn btn-primary flex items-center gap-2"
+          :disabled="limitReached"
+          :class="['btn flex items-center gap-2', limitReached ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary']"
         >
           <PlusIcon class="w-4 h-4" />
           New Service Account
         </button>
+      </div>
+
+      <!-- Limit Warning (only for admins) -->
+      <div v-if="limitReached && canWrite" class="card bg-amber-500/20 border-amber-500/50 mb-4">
+        <div class="flex items-start gap-3">
+          <NoSymbolIcon class="w-5 h-5 text-amber-400 shrink-0" />
+          <p class="text-gray-300 text-sm">
+            You have {{ limitInfo.current }}/{{ limitInfo.max }} service accounts. Delete one or increase the limit in 
+            <router-link to="/settings/configuration" class="text-violet-400 hover:underline">Configuration</router-link>.
+          </p>
+        </div>
       </div>
 
       <!-- Service Account List -->
@@ -61,6 +74,7 @@
                 </div>
               </div>
               <button 
+                v-if="canWrite"
                 @click="toggleEnabled(account)"
                 class="p-2 transition-colors"
                 :class="account.enabled ? 'text-gray-500 hover:text-yellow-400' : 'text-gray-500 hover:text-green-400'"
@@ -70,6 +84,7 @@
                 <PlayCircleIcon v-else class="w-5 h-5" />
               </button>
               <button 
+                v-if="canWrite"
                 @click="deleteAccount(account)"
                 class="p-2 text-gray-500 hover:text-red-400 transition-colors"
                 title="Delete service account"
@@ -128,26 +143,26 @@
             </div>
 
             <div class="mb-6">
-              <label class="block text-sm font-medium text-gray-400 mb-2">Permissions</label>
+              <label class="block text-sm font-medium text-gray-400 mb-2">Role</label>
               <div class="space-y-3">
                 <label
                   class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
-                  :class="createForm.accessLevel === 'full' ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 hover:border-gray-600'"
+                  :class="createForm.accessLevel === 'admin' ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 hover:border-gray-600'"
                 >
-                  <input type="radio" v-model="createForm.accessLevel" value="full" class="mt-1" />
+                  <input type="radio" v-model="createForm.accessLevel" value="admin" class="mt-1" />
                   <div>
-                    <div class="font-medium">Full Access</div>
-                    <div class="text-sm text-gray-500">Can list and execute tools</div>
+                    <div class="font-medium">Admin</div>
+                    <div class="text-sm text-gray-500">Full MCP Proxy access + read/write Dashboard API</div>
                   </div>
                 </label>
                 <label
                   class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
-                  :class="createForm.accessLevel === 'read' ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 hover:border-gray-600'"
+                  :class="createForm.accessLevel === 'member' ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 hover:border-gray-600'"
                 >
-                  <input type="radio" v-model="createForm.accessLevel" value="read" class="mt-1" />
+                  <input type="radio" v-model="createForm.accessLevel" value="member" class="mt-1" />
                   <div>
-                    <div class="font-medium">Read Only</div>
-                    <div class="text-sm text-gray-500">Can only list tools and resources</div>
+                    <div class="font-medium">Member</div>
+                    <div class="text-sm text-gray-500">Full MCP Proxy access + read-only Dashboard API</div>
                   </div>
                 </label>
               </div>
@@ -255,9 +270,12 @@ import {
   CheckIcon,
   ClipboardDocumentIcon,
   PauseCircleIcon,
-  PlayCircleIcon
+  PlayCircleIcon,
+  NoSymbolIcon
 } from '@heroicons/vue/24/outline'
 import api from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
+import { usePermissions } from '@/composables/usePermissions'
 
 interface ServiceAccount {
   id: string
@@ -280,6 +298,8 @@ interface NewCredentials {
 
 const apiUrl = window.location.origin.replace(':3000', ':8080')
 
+const authStore = useAuthStore()
+const { canWrite } = usePermissions()
 const accounts = ref<ServiceAccount[]>([])
 const loading = ref(true)
 const showCreateModal = ref(false)
@@ -288,9 +308,26 @@ const createError = ref<string | null>(null)
 const createForm = ref({
   name: '',
   description: '',
-  accessLevel: 'full' as 'full' | 'read'
+  accessLevel: 'admin' as 'admin' | 'member'
 })
 const newCredentials = ref<NewCredentials | null>(null)
+const limitReached = ref(false)
+const limitInfo = ref({ current: 0, max: 0 })
+
+async function checkLimits() {
+  try {
+    const response = await fetch('/api/limits', {
+      headers: { 'Authorization': `Bearer ${authStore.token}` }
+    })
+    if (response.ok) {
+      const data = await response.json()
+      limitInfo.value = { current: data.service_accounts.current, max: data.service_accounts.max }
+      limitReached.value = !data.service_accounts.can_create
+    }
+  } catch (e) {
+    console.error('Failed to check limits:', e)
+  }
+}
 
 async function loadAccounts() {
   try {
@@ -310,15 +347,13 @@ async function createAccount() {
   createError.value = null
 
   try {
-    // Convert accessLevel to scopes
-    const scopes = createForm.value.accessLevel === 'full'
-      ? ['mcp:server:read', 'mcp:tool:execute']
-      : ['mcp:server:read']
+    // Send role directly (admin or member)
+    const role = createForm.value.accessLevel
     
     const response = await api.post<NewCredentials>('/service-accounts', {
       name: createForm.value.name.trim(),
       description: createForm.value.description || null,
-      scopes
+      role
     })
     newCredentials.value = response.data
     await loadAccounts()
@@ -360,7 +395,7 @@ async function deleteAccount(account: ServiceAccount) {
 function closeCreateModal() {
   showCreateModal.value = false
   newCredentials.value = null
-  createForm.value = { name: '', description: '', accessLevel: 'full' }
+  createForm.value = { name: '', description: '', accessLevel: 'admin' }
 }
 
 function copyToClipboard(text: string) {
@@ -377,5 +412,6 @@ function formatScopes(scopes: string[]) {
 
 onMounted(() => {
   loadAccounts()
+  checkLimits()
 })
 </script>

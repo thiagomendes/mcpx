@@ -16,6 +16,8 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::routes::auth::extract_org_context;
 use crate::messages::error;
+use crate::middleware::auth::AuthUser;
+use crate::middleware::permissions::Permission;
 
 // ============================================
 // TYPES
@@ -155,9 +157,9 @@ fn hash_secret(secret: &str) -> String {
 /// GET /api/service-accounts - List org's service accounts
 pub async fn list_service_accounts(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<Json<Vec<ServiceAccountResponse>>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let rows: Vec<ServiceAccountRow> = sqlx::query_as(SQL_LIST_SERVICE_ACCOUNTS)
         .bind(org_id)
@@ -185,10 +187,29 @@ pub async fn list_service_accounts(
 /// POST /api/service-accounts - Create new service account
 pub async fn create_service_account(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Json(payload): Json<CreateServiceAccountRequest>,
 ) -> Result<Json<ServiceAccountCreatedResponse>, (StatusCode, String)> {
-    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::ServiceAccountsWrite)?;
+    
+    let org_id = auth.org_id;
+    let user_id = auth.user_id;
+
+    // Check max_service_accounts_per_org limit
+    let max_sas = crate::routes::settings::get_org_setting_value(
+        &state.db, org_id, "max_service_accounts_per_org", "20"
+    ).await.parse::<i64>().unwrap_or(20);
+    
+    let current_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM service_accounts WHERE org_id = $1")
+        .bind(org_id)
+        .fetch_one(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+    
+    if current_count.0 >= max_sas {
+        return Err((StatusCode::FORBIDDEN, format!("Service account limit reached. Maximum {} per organization.", max_sas)));
+    }
 
     // Validate name
     if payload.name.trim().is_empty() {
@@ -229,10 +250,10 @@ pub async fn create_service_account(
 /// GET /api/service-accounts/:id - Get service account details
 pub async fn get_service_account(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(account_id): Path<Uuid>,
 ) -> Result<Json<ServiceAccountResponse>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let row: Option<ServiceAccountRow> = sqlx::query_as(SQL_GET_SERVICE_ACCOUNT)
         .bind(account_id)
@@ -258,11 +279,14 @@ pub async fn get_service_account(
 /// PUT /api/service-accounts/:id - Update service account
 pub async fn update_service_account(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(account_id): Path<Uuid>,
     Json(payload): Json<UpdateServiceAccountRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::ServiceAccountsWrite)?;
+    
+    let org_id = auth.org_id;
 
     let scopes_json = payload.scopes.map(|s| serde_json::to_value(s).unwrap_or_default());
 
@@ -287,10 +311,13 @@ pub async fn update_service_account(
 /// DELETE /api/service-accounts/:id - Delete service account
 pub async fn delete_service_account(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(account_id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // Check permission
+    auth.require(Permission::ServiceAccountsWrite)?;
+    
+    let org_id = auth.org_id;
 
     let result = sqlx::query(SQL_DELETE_SERVICE_ACCOUNT)
         .bind(account_id)

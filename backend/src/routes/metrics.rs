@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::AppState;
-use crate::routes::auth::extract_org_context;
+use crate::middleware::auth::AuthUser;
 use crate::services::metrics::{self, TodayMetrics, HourlyStat, TargetMetrics, MetricsQuery, QueryResponse};
 use crate::messages::error;
 
@@ -29,9 +29,9 @@ fn default_hours() -> f64 {
 /// Returns today's request count for servers and gateways
 pub async fn get_today(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<Json<TodayMetrics>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let metrics = metrics::get_today_count(&state.db.pool, org_id)
         .await
@@ -44,10 +44,10 @@ pub async fn get_today(
 /// Returns hourly breakdown from continuous aggregate
 pub async fn get_hourly(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Query(params): Query<HourlyParams>,
 ) -> Result<Json<Vec<HourlyStat>>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let stats = metrics::get_hourly_stats(&state.db.pool, org_id, params.hours)
         .await
@@ -60,10 +60,10 @@ pub async fn get_hourly(
 /// Returns metrics grouped by server/gateway
 pub async fn get_by_target(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Query(params): Query<HourlyParams>,
 ) -> Result<Json<Vec<TargetMetrics>>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let metrics = metrics::get_metrics_by_target(&state.db.pool, org_id, params.hours)
         .await
@@ -76,10 +76,10 @@ pub async fn get_by_target(
 /// Flexible query endpoint with filters, grouping, and bucket size
 pub async fn query(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Json(query): Json<MetricsQuery>,
 ) -> Result<Json<QueryResponse>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let response = metrics::query_metrics(&state.db.pool, org_id, query)
         .await
@@ -99,10 +99,10 @@ pub struct SummaryParams {
 /// Returns summary stats with percentiles for dashboard cards
 pub async fn get_summary(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Query(params): Query<SummaryParams>,
 ) -> Result<Json<metrics::SummaryStats>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let stats = metrics::get_summary_stats(
         &state.db.pool, 

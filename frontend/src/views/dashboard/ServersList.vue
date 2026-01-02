@@ -5,10 +5,26 @@
         <h1 class="text-2xl font-bold mb-2">Servers</h1>
         <p class="text-gray-400">Manage your MCP servers</p>
       </div>
-      <router-link to="/servers/new" class="btn btn-primary flex items-center gap-2">
+      <button 
+        v-if="canWrite"
+        @click="goToAddServer"
+        :disabled="limitReached"
+        :class="['btn flex items-center gap-2', limitReached ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary']"
+      >
         <PlusIcon class="w-5 h-5" />
         Add Server
-      </router-link>
+      </button>
+    </div>
+
+    <!-- Limit Warning (only for admins) -->
+    <div v-if="limitReached && canWrite" class="card bg-amber-500/20 border-amber-500/50 mb-4">
+      <div class="flex items-start gap-3">
+        <NoSymbolIcon class="w-5 h-5 text-amber-400 shrink-0" />
+        <p class="text-gray-300 text-sm">
+          You have {{ limitInfo.current }}/{{ limitInfo.max }} servers. Delete one or increase the limit in 
+          <router-link to="/settings/configuration" class="text-violet-400 hover:underline">Configuration</router-link>.
+        </p>
+      </div>
     </div>
 
     <!-- Loading -->
@@ -23,10 +39,14 @@
       </div>
       <h3 class="text-lg font-semibold mb-2">No servers yet</h3>
       <p class="text-gray-400 mb-6">Connect your first MCP server to get started</p>
-      <router-link to="/servers/new" class="btn btn-primary inline-flex items-center gap-2">
+      <button 
+        @click="goToAddServer"
+        :disabled="limitReached"
+        :class="['btn inline-flex items-center gap-2', limitReached ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary']"
+      >
         <PlusIcon class="w-5 h-5" />
         Add Your First Server
-      </router-link>
+      </button>
     </div>
 
     <!-- Server List -->
@@ -56,6 +76,7 @@
             Copy URL
           </button>
           <button 
+            v-if="canWrite"
             @click.stop="handleDelete(server.name)" 
             class="btn btn-ghost text-sm text-red-400 hover:text-red-300 flex items-center gap-1"
           >
@@ -69,20 +90,51 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import { useServersStore } from '@/stores/servers'
+import { useAuthStore } from '@/stores/auth'
+import { usePermissions } from '@/composables/usePermissions'
 import { 
   ServerIcon, 
   PlusIcon, 
   ClipboardDocumentIcon, 
-  TrashIcon 
+  TrashIcon,
+  NoSymbolIcon
 } from '@heroicons/vue/24/outline'
 
+const router = useRouter()
 const serversStore = useServersStore()
+const authStore = useAuthStore()
+const { canWrite } = usePermissions()
+const limitReached = ref(false)
+const limitInfo = ref({ current: 0, max: 0 })
+
+async function checkLimits() {
+  try {
+    const response = await fetch('/api/limits', {
+      headers: { 'Authorization': `Bearer ${authStore.token}` }
+    })
+    if (response.ok) {
+      const data = await response.json()
+      limitInfo.value = { current: data.servers.current, max: data.servers.max }
+      limitReached.value = !data.servers.can_create
+    }
+  } catch (e) {
+    console.error('Failed to check limits:', e)
+  }
+}
+
+function goToAddServer() {
+  if (!limitReached.value) {
+    router.push('/servers/new')
+  }
+}
 
 onMounted(() => {
   serversStore.fetchServers()
+  checkLimits()
 })
 
 function statusLabel(status: string): string {

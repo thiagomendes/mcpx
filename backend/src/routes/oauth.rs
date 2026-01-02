@@ -16,9 +16,9 @@ use crate::AppState;
 const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND org_id = $2";
 
 const SQL_UPSERT_OAUTH_TOKENS: &str = r#"
-    INSERT INTO oauth_tokens (server_id, user_id, access_token_encrypted, refresh_token_encrypted, token_type, expires_at, scope, dynamic_client_id)
+    INSERT INTO oauth_tokens (server_id, org_id, access_token_encrypted, refresh_token_encrypted, token_type, expires_at, scope, dynamic_client_id)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    ON CONFLICT (server_id, user_id) 
+    ON CONFLICT (server_id, org_id) 
     DO UPDATE SET 
         access_token_encrypted = $3,
         refresh_token_encrypted = $4,
@@ -31,9 +31,9 @@ const SQL_UPSERT_OAUTH_TOKENS: &str = r#"
 "#;
 
 const SQL_SELECT_OAUTH_STATUS: &str = 
-    "SELECT COALESCE(access_token_encrypted, ''), expires_at FROM oauth_tokens WHERE server_id = $1 AND user_id = $2";
+    "SELECT COALESCE(access_token_encrypted, ''), expires_at FROM oauth_tokens WHERE server_id = $1 AND org_id = $2";
 
-const SQL_DELETE_OAUTH_TOKENS: &str = "DELETE FROM oauth_tokens WHERE server_id = $1 AND user_id = $2";
+const SQL_DELETE_OAUTH_TOKENS: &str = "DELETE FROM oauth_tokens WHERE server_id = $1 AND org_id = $2";
 
 #[derive(Debug, Deserialize)]
 pub struct StoreTokensRequest {
@@ -82,7 +82,7 @@ pub async fn store_oauth_tokens(
 
     sqlx::query(SQL_UPSERT_OAUTH_TOKENS)
         .bind(server_id)
-        .bind(auth_user.user_id)
+        .bind(auth_user.org_id)
         .bind(&access_encrypted)
         .bind(&refresh_encrypted)
         .bind(tokens.token_type.unwrap_or_else(|| "Bearer".to_string()))
@@ -113,7 +113,7 @@ pub async fn oauth_status(
 
     let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(SQL_SELECT_OAUTH_STATUS)
         .bind(server_id)
-        .bind(auth_user.user_id)
+        .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
@@ -147,7 +147,7 @@ pub async fn revoke_oauth(
 
     sqlx::query(SQL_DELETE_OAUTH_TOKENS)
         .bind(server_id)
-        .bind(auth_user.user_id)
+        .bind(auth_user.org_id)
         .execute(&state.db.pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;

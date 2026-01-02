@@ -6,7 +6,22 @@
         <p class="text-gray-400">Connect a new MCP server</p>
       </div>
 
-      <form @submit.prevent="handleSubmit" class="card space-y-6">
+      <!-- Limit Reached Warning -->
+      <div v-if="limitReached" class="card bg-amber-500/20 border-amber-500/50 mb-6">
+        <div class="flex items-start gap-3">
+          <NoSymbolIcon class="w-6 h-6 text-amber-400 shrink-0" />
+          <div>
+            <p class="text-amber-300 font-medium">Server Limit Reached</p>
+            <p class="text-gray-300 text-sm mt-1">
+              You have {{ limitInfo.current }} of {{ limitInfo.max }} servers allowed.
+              To add more servers, delete an existing one or ask an admin to increase the limit in 
+              <router-link to="/settings/configuration" class="text-violet-400 hover:underline">System Configuration</router-link>.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <form @submit.prevent="handleSubmit" class="card space-y-6" :class="{ 'opacity-50 pointer-events-none': limitReached }">
         <!-- Name -->
         <div>
           <label class="block text-sm font-medium mb-2">Server Name</label>
@@ -273,8 +288,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import InfoTooltip from '@/components/ui/InfoTooltip.vue'
 import ServerSetupModal from '@/components/ui/ServerSetupModal.vue'
@@ -286,10 +302,12 @@ import {
   SignalIcon, 
   PlusIcon,
   LockClosedIcon,
-  SparklesIcon
+  SparklesIcon,
+  NoSymbolIcon
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 const form = reactive({
   name: '',
@@ -311,6 +329,28 @@ const testResult = ref<TestResult | null>(null)
 const testing = ref(false)
 const submitting = ref(false)
 const showSetupModal = ref(false)
+const limitReached = ref(false)
+const limitInfo = ref({ current: 0, max: 0 })
+
+onMounted(async () => {
+  await checkLimits()
+})
+
+async function checkLimits() {
+  try {
+    const response = await fetch('/api/limits', {
+      headers: { 'Authorization': `Bearer ${authStore.token}` }
+    })
+    if (response.ok) {
+      const data = await response.json()
+      limitInfo.value = { current: data.servers.current, max: data.servers.max }
+      limitReached.value = !data.servers.can_create
+    }
+  } catch (e) {
+    console.error('Failed to check limits:', e)
+  }
+}
+
 
 async function handleTest() {
   if (!form.url) return

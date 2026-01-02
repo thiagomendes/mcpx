@@ -15,6 +15,8 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::routes::auth::extract_org_context;
 use crate::messages::error;
+use crate::middleware::auth::AuthUser;
+use crate::middleware::permissions::Permission;
 
 // ============================================
 // TYPES
@@ -129,9 +131,10 @@ fn get_token_prefix(token: &str) -> String {
 /// GET /api/tokens - List user's tokens for current org
 pub async fn list_tokens(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
 ) -> Result<Json<Vec<PatResponse>>, (StatusCode, String)> {
-    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let user_id = auth.user_id;
+    let org_id = auth.org_id;
 
     let rows = sqlx::query_as::<_, PatRow>(SQL_LIST_PATS)
         .bind(user_id)
@@ -159,10 +162,30 @@ pub async fn list_tokens(
 /// POST /api/tokens - Create new token for current org
 pub async fn create_token(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Json(payload): Json<CreatePatRequest>,
 ) -> Result<Json<PatCreatedResponse>, (StatusCode, String)> {
-    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // PATs are self-service - any authenticated user can create their own tokens
+    // No permission check needed - tokens are automatically tied to auth.user_id
+    
+    let user_id = auth.user_id;
+    let org_id = auth.org_id;
+
+    // Check max_pats_per_user limit
+    let max_pats = crate::routes::settings::get_org_setting_value(
+        &state.db, org_id, "max_pats_per_user", "10"
+    ).await.parse::<i64>().unwrap_or(10);
+    
+    let current_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM personal_access_tokens WHERE user_id = $1 AND org_id = $2")
+        .bind(user_id)
+        .bind(org_id)
+        .fetch_one(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+    
+    if current_count.0 >= max_pats {
+        return Err((StatusCode::FORBIDDEN, format!("Token limit reached. Maximum {} tokens per user.", max_pats)));
+    }
 
     // Validate name
     if payload.name.trim().is_empty() {
@@ -212,10 +235,14 @@ pub async fn create_token(
 /// DELETE /api/tokens/:id - Revoke token
 pub async fn delete_token(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(token_id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    // PATs are self-service - any user can delete their own tokens
+    // The SQL query filters by user_id, so users can only delete their own
+    
+    let user_id = auth.user_id;
+    let org_id = auth.org_id;
 
     let result = sqlx::query(SQL_DELETE_PAT)
         .bind(token_id)

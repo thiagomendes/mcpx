@@ -11,7 +11,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::routes::auth::extract_org_context;
+use crate::middleware::auth::AuthUser;
 use crate::services::audit::{self, AuditQuery, AuditListResponse, AuditLogDetail};
 use crate::messages::error;
 
@@ -19,10 +19,10 @@ use crate::messages::error;
 /// List audit logs with pagination and filters
 pub async fn list_audit_logs(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Query(query): Query<AuditQuery>,
 ) -> Result<Json<AuditListResponse>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let response = audit::list_audit_logs(&state.db.pool, org_id, query)
         .await
@@ -35,10 +35,10 @@ pub async fn list_audit_logs(
 /// Get audit log detail by ID
 pub async fn get_audit_log(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<AuditLogDetail>, (StatusCode, String)> {
-    let (_user_id, org_id, _org_slug) = extract_org_context(&headers, &state.config.jwt_secret)?;
+    let org_id = auth.org_id;
 
     let log = audit::get_audit_log(&state.db.pool, org_id, id)
         .await
