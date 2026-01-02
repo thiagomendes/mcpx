@@ -235,8 +235,6 @@ async fn main() {
         .route("/api/settings/:key", get(routes::settings::get_setting))
         .route("/api/settings/:key", put(routes::settings::update_setting))
         .route("/api/limits", get(routes::settings::get_limits))
-        // Background Jobs (Admin monitoring)
-        .route("/api/jobs", get(routes::jobs::list_jobs))
         // MCP Proxy - now uses org_slug instead of user_id
         .route(
             "/mcp/:org_slug/:server_name",
