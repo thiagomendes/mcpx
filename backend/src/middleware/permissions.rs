@@ -1,5 +1,5 @@
 //! Permission System for Dashboard API
-//! 
+//!
 //! SINGLE SOURCE OF TRUTH for all role-based permissions.
 //! To change a permission, modify `allowed_roles()` only.
 
@@ -11,29 +11,29 @@ pub enum Permission {
     // Servers
     ServersRead,
     ServersWrite,
-    
+
     // Gateways
     GatewaysRead,
     GatewaysWrite,
-    
+
     // Personal Access Tokens
     TokensRead,
     TokensWrite,
-    
+
     // Service Accounts
     ServiceAccountsRead,
     ServiceAccountsWrite,
-    
+
     // Organization Members
     MembersRead,
     MembersInvite,
     MembersRemove,
     MembersChangeRole,
-    
+
     // Settings
     SettingsRead,
     SettingsWrite,
-    
+
     // Organization
     OrgDelete,
 }
@@ -44,21 +44,20 @@ const WRITE_ROLES: &[&str] = &["owner", "admin"];
 const OWNER_ONLY: &[&str] = &["owner"];
 
 /// Returns the roles allowed for a given permission.
-/// 
+///
 /// MODIFY THIS FUNCTION TO CHANGE PERMISSIONS.
 pub fn allowed_roles(permission: Permission) -> &'static [&'static str] {
     use Permission::*;
-    
+
     match permission {
         // Read: all roles
-        ServersRead | GatewaysRead | TokensRead | 
-        ServiceAccountsRead | MembersRead | SettingsRead => ALL_ROLES,
-        
+        ServersRead | GatewaysRead | TokensRead | ServiceAccountsRead | MembersRead
+        | SettingsRead => ALL_ROLES,
+
         // Write: owner + admin
-        ServersWrite | GatewaysWrite | TokensWrite | 
-        ServiceAccountsWrite | MembersInvite | MembersRemove | 
-        SettingsWrite => WRITE_ROLES,
-        
+        ServersWrite | GatewaysWrite | TokensWrite | ServiceAccountsWrite | MembersInvite
+        | MembersRemove | SettingsWrite => WRITE_ROLES,
+
         // Owner only
         MembersChangeRole | OrgDelete => OWNER_ONLY,
     }
@@ -76,7 +75,14 @@ pub fn require_permission(role: &str, permission: Permission) -> Result<(), (Sta
     } else {
         let action = format!("{:?}", permission);
         tracing::warn!("Permission denied: role={} action={}", role, action);
-        Err((StatusCode::FORBIDDEN, format!("Permission denied: {} requires {:?}", role, allowed_roles(permission))))
+        Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Permission denied: {} requires {:?}",
+                role,
+                allowed_roles(permission)
+            ),
+        ))
     }
 }
 

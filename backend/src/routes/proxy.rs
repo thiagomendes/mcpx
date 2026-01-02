@@ -1,25 +1,25 @@
 #![allow(dead_code)]
 use axum::{
+    body::Body,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::Response,
-    body::Body,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::AppState;
+use crate::messages::error;
 use crate::services::crypto;
 use crate::services::mcp_client;
-use crate::messages::error;
 use crate::services::metrics::RequestMetric;
-
+use crate::AppState;
 
 // SQL queries now use org_id/org_slug instead of user_id
 const SQL_SELECT_ORG_BY_SLUG: &str = "SELECT id FROM organizations WHERE slug = $1";
 const SQL_SELECT_SERVER: &str = "SELECT id, org_id, name, url, transport, auth_type, status, oauth_client_id, oauth_token_url FROM servers WHERE name = $1 AND org_id = $2";
-const SQL_SELECT_GOVERNANCE: &str = "SELECT allowed_tools, denied_tools, tool_prefix FROM governance_configs WHERE server_id = $1";
+const SQL_SELECT_GOVERNANCE: &str =
+    "SELECT allowed_tools, denied_tools, tool_prefix FROM governance_configs WHERE server_id = $1";
 
 const SQL_SELECT_GATEWAY: &str = r#"
     SELECT g.id, g.name, g.slug FROM gateways g WHERE g.slug = $1 AND g.org_id = $2 AND g.enabled = true
@@ -39,7 +39,8 @@ const SQL_UPSERT_GATEWAY_SESSION: &str = r#"
     ON CONFLICT (id) DO UPDATE SET server_sessions = $4, expires_at = NOW() + INTERVAL '1 hour'
 "#;
 
-const SQL_SELECT_GATEWAY_SESSION: &str = "SELECT server_sessions FROM gateway_sessions WHERE id = $1";
+const SQL_SELECT_GATEWAY_SESSION: &str =
+    "SELECT server_sessions FROM gateway_sessions WHERE id = $1";
 
 /// Authentication result from PAT or M2M JWT validation
 #[derive(Debug, Clone)]
@@ -69,29 +70,41 @@ fn validate_scope_for_method(auth: &AuthResult, method: &str) -> Result<(), (Sta
     if auth.scopes.is_none() {
         return Ok(());
     }
-    
+
     // Determine required scope based on method
     let required_scope = match method {
         // Initialize and notifications are always allowed
         "initialize" => return Ok(()),
         m if m.starts_with("notifications/") => return Ok(()),
-        
+
         // Read operations require server:read
-        "tools/list" | "resources/list" | "prompts/list" | 
-        "resources/read" | "prompts/get" => "mcp:server:read",
-        
+        "tools/list" | "resources/list" | "prompts/list" | "resources/read" | "prompts/get" => {
+            "mcp:server:read"
+        }
+
         // Execute operations require tool:execute
         "tools/call" => "mcp:tool:execute",
-        
+
         // Unknown methods - allow for now
         _ => return Ok(()),
     };
-    
+
     if auth.has_scope(required_scope) {
         Ok(())
     } else {
-        tracing::warn!("Scope denied: method={} requires {} but token has {:?}", method, required_scope, auth.scopes);
-        Err((StatusCode::FORBIDDEN, format!("Insufficient scope: {} requires '{}'", method, required_scope)))
+        tracing::warn!(
+            "Scope denied: method={} requires {} but token has {:?}",
+            method,
+            required_scope,
+            auth.scopes
+        );
+        Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Insufficient scope: {} requires '{}'",
+                method, required_scope
+            ),
+        ))
     }
 }
 
@@ -104,35 +117,62 @@ pub async fn mcp_proxy(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, (StatusCode, String)> {
-    tracing::info!("MCP Proxy request: org={}, target={}", org_slug, server_name);
-    
+    tracing::info!(
+        "MCP Proxy request: org={}, target={}",
+        org_slug,
+        server_name
+    );
+
     // Extract and validate authentication - returns AuthResult with scopes
     let auth = authenticate_request(&state, &headers).await?;
-    
+
     // Look up org by slug
     let org_id: Uuid = sqlx::query_scalar(SQL_SELECT_ORG_BY_SLUG)
         .bind(&org_slug)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
-        .ok_or((StatusCode::NOT_FOUND, format!("Organization '{}' not found", org_slug)))?;
-    
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            format!("Organization '{}' not found", org_slug),
+        ))?;
+
     // Verify token was created for THIS org (not just that user is a member)
     if auth.org_id != org_id {
-        return Err((StatusCode::FORBIDDEN, "Token not valid for this organization".to_string()));
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Token not valid for this organization".to_string(),
+        ));
     }
-    
-    tracing::info!("Auth successful: id={} org={} scopes={:?}", auth.user_or_sa_id, org_slug, auth.scopes);
-    
+
+    tracing::info!(
+        "Auth successful: id={} org={} scopes={:?}",
+        auth.user_or_sa_id,
+        org_slug,
+        auth.scopes
+    );
+
     if let Ok(server) = get_server_by_name(&state, &server_name, org_id).await {
         return handle_server_proxy(&state, server, headers, body, &auth).await;
     }
-    
+
     if let Ok(gateway) = get_gateway_by_slug(&state, &server_name, org_id).await {
         return handle_gateway_proxy(&state, gateway, org_id, headers, body, &auth).await;
     }
-    
-    Err((StatusCode::NOT_FOUND, format!("{}: no server or gateway found with name '{}'", error::SERVER_NOT_FOUND, server_name)))
+
+    Err((
+        StatusCode::NOT_FOUND,
+        format!(
+            "{}: no server or gateway found with name '{}'",
+            error::SERVER_NOT_FOUND,
+            server_name
+        ),
+    ))
 }
 
 /// Authenticate the incoming request
@@ -146,47 +186,71 @@ async fn authenticate_request(
     // Extract Authorization header
     let auth_header = match headers.get("authorization") {
         Some(h) => h.to_str().unwrap_or(""),
-        None => return Err((StatusCode::UNAUTHORIZED, "Authorization header required".to_string())),
+        None => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Authorization header required".to_string(),
+            ))
+        }
     };
-    
+
     // Parse "Bearer <token>"
     if !auth_header.starts_with("Bearer ") {
-        return Err((StatusCode::UNAUTHORIZED, "Bearer token required".to_string()));
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Bearer token required".to_string(),
+        ));
     }
-    
+
     let token = &auth_header[7..];
-    
+
     // Check if it's a PAT token
     if token.starts_with("mcpx_pat_") {
         let pat_result = super::pat::validate_pat(&state.db.pool, token)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
-        
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("{}: {}", error::DATABASE_ERROR, e),
+                )
+            })?;
+
         match pat_result {
             Some(pat) => {
-                tracing::debug!("PAT validated: {} (user={}, org={})", pat.name, pat.user_id, pat.org_id);
+                tracing::debug!(
+                    "PAT validated: {} (user={}, org={})",
+                    pat.name,
+                    pat.user_id,
+                    pat.org_id
+                );
                 Ok(AuthResult {
                     user_or_sa_id: pat.user_id,
                     org_id: pat.org_id,
                     scopes: None, // PAT = full access
                 })
             }
-            None => Err((StatusCode::UNAUTHORIZED, "Invalid or expired token".to_string())),
+            None => Err((
+                StatusCode::UNAUTHORIZED,
+                "Invalid or expired token".to_string(),
+            )),
         }
     } else if token.starts_with("ey") {
         // Looks like a JWT - try to validate as M2M token
         validate_m2m_jwt(token, &state.config.jwt_secret)
     } else {
         // Unknown token format
-        Err((StatusCode::UNAUTHORIZED, "Invalid token format. Use a Personal Access Token or M2M JWT".to_string()))
+        Err((
+            StatusCode::UNAUTHORIZED,
+            "Invalid token format. Use a Personal Access Token or M2M JWT".to_string(),
+        ))
     }
 }
 
 /// Validate M2M JWT token and extract service_account_id, org_id, and scopes
 fn validate_m2m_jwt(token: &str, secret: &str) -> Result<AuthResult, (StatusCode, String)> {
-    use jsonwebtoken::{decode, DecodingKey, Validation};
     use super::auth::M2MClaims;
-    
+    use jsonwebtoken::{decode, DecodingKey, Validation};
+
     let token_data = decode::<M2MClaims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
@@ -194,22 +258,38 @@ fn validate_m2m_jwt(token: &str, secret: &str) -> Result<AuthResult, (StatusCode
     )
     .map_err(|e| {
         tracing::warn!("M2M JWT validation failed: {}", e);
-        (StatusCode::UNAUTHORIZED, "Invalid or expired M2M token".to_string())
+        (
+            StatusCode::UNAUTHORIZED,
+            "Invalid or expired M2M token".to_string(),
+        )
     })?;
-    
+
     let claims = token_data.claims;
-    
+
     // Verify it's an M2M token
     if claims.token_type != "m2m" {
         return Err((StatusCode::UNAUTHORIZED, "Invalid token type".to_string()));
     }
-    
-    let service_account_id = Uuid::parse_str(&claims.sub)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid service account ID in token".to_string()))?;
-    let org_id = Uuid::parse_str(&claims.org_id)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid org ID in token".to_string()))?;
-    
-    tracing::debug!("M2M JWT validated: sa={}, org={}, scopes={:?}", service_account_id, org_id, claims.scopes);
+
+    let service_account_id = Uuid::parse_str(&claims.sub).map_err(|_| {
+        (
+            StatusCode::UNAUTHORIZED,
+            "Invalid service account ID in token".to_string(),
+        )
+    })?;
+    let org_id = Uuid::parse_str(&claims.org_id).map_err(|_| {
+        (
+            StatusCode::UNAUTHORIZED,
+            "Invalid org ID in token".to_string(),
+        )
+    })?;
+
+    tracing::debug!(
+        "M2M JWT validated: sa={}, org={}, scopes={:?}",
+        service_account_id,
+        org_id,
+        claims.scopes
+    );
     Ok(AuthResult {
         user_or_sa_id: service_account_id,
         org_id,
@@ -227,47 +307,66 @@ async fn handle_server_proxy(
     let start = std::time::Instant::now();
 
     if server.status.as_deref() == Some("disabled") {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, error::SERVER_DISABLED.to_string()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            error::SERVER_DISABLED.to_string(),
+        ));
     }
-    
-    let governance = get_governance_config(state, server.id).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::GOVERNANCE_ERROR, e)))?;
-    
-    let auth_headers = build_auth_headers(state, &server).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
-    
+
+    let governance = get_governance_config(state, server.id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{}: {}", error::GOVERNANCE_ERROR, e),
+        )
+    })?;
+
+    let auth_headers = build_auth_headers(state, &server).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{}: {}", error::AUTH_ERROR, e),
+        )
+    })?;
+
     let body_bytes = axum::body::to_bytes(body, 10 * 1024 * 1024)
         .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{}: {}", error::FAILED_TO_READ_BODY, e)))?;
-    
-    let request: serde_json::Value = serde_json::from_slice(&body_bytes)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{}: {}", error::INVALID_JSON, e)))?;
-    
-    let method = request.get("method")
-        .and_then(|m| m.as_str())
-        .unwrap_or("");
-    
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("{}: {}", error::FAILED_TO_READ_BODY, e),
+            )
+        })?;
+
+    let request: serde_json::Value = serde_json::from_slice(&body_bytes).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("{}: {}", error::INVALID_JSON, e),
+        )
+    })?;
+
+    let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
     // Scope validation: check permissions based on method
     validate_scope_for_method(auth, method)?;
-    
+
     // Extract tool_name when method is tools/call
     let tool_name = if method == "tools/call" {
-        request.get("params")
+        request
+            .get("params")
             .and_then(|p| p.get("name"))
             .and_then(|n| n.as_str())
             .map(|s| s.to_string())
     } else {
         None
     };
-    
+
     let modified_body = if method == "tools/call" {
         handle_tools_call(&request, &governance)?
     } else {
         body_bytes.to_vec()
     };
-    
+
     let result = forward_request(&server.url, headers, auth_headers, modified_body).await;
-    
+
     // Calculate latency - record_request will be called after response body is analyzed
     let latency_ms = start.elapsed().as_millis() as i32;
 
@@ -275,17 +374,17 @@ async fn handle_server_proxy(
     match result {
         Ok(response) => {
             let status_code = response.status().as_u16() as i32;
-            
+
             // Read response body bytes to capture for audit
             let (parts, body) = response.into_parts();
             let body_bytes = axum::body::to_bytes(body, 10 * 1024 * 1024)
                 .await
                 .unwrap_or_default();
-            
+
             // Parse response body as JSON for audit log
             // First try direct JSON, then try extracting from SSE format (data: {...})
-            let response_body_json: Option<serde_json::Value> = serde_json::from_slice(&body_bytes).ok()
-                .or_else(|| {
+            let response_body_json: Option<serde_json::Value> =
+                serde_json::from_slice(&body_bytes).ok().or_else(|| {
                     // Try to parse as SSE - extract JSON from "data: {...}" lines
                     let body_str = std::str::from_utf8(&body_bytes).ok()?;
                     for line in body_str.lines() {
@@ -297,16 +396,16 @@ async fn handle_server_proxy(
                     }
                     None
                 });
-            
+
             // Check if JSON-RPC response contains an error
             let has_jsonrpc_error = response_body_json
                 .as_ref()
                 .and_then(|v| v.get("error"))
                 .map(|e| !e.is_null())
                 .unwrap_or(false);
-            
+
             let actual_success = (200..300).contains(&status_code) && !has_jsonrpc_error;
-            
+
             // Extract error message if present
             let error_message = if has_jsonrpc_error {
                 response_body_json
@@ -318,7 +417,7 @@ async fn handle_server_proxy(
             } else {
                 None
             };
-            
+
             // Record audit log with full request/response
             if let Err(e) = crate::services::audit::record_audit_log(
                 &state.db.pool,
@@ -335,10 +434,12 @@ async fn handle_server_proxy(
                 latency_ms,
                 actual_success,
                 None,
-            ).await {
+            )
+            .await
+            {
                 tracing::error!("Failed to record audit log: {}", e);
             }
-            
+
             // Record metrics with correct success status (detects JSON-RPC errors)
             if let Err(e) = crate::services::metrics::record_request(
                 &state.db.pool,
@@ -351,18 +452,20 @@ async fn handle_server_proxy(
                     tool_name: tool_name.as_deref(),
                     latency_ms,
                     success: actual_success,
-                }
-            ).await {
+                },
+            )
+            .await
+            {
                 tracing::error!("Failed to record metrics: {}", e);
             }
-            
+
             // Reconstruct response with the same body
             let response = Response::from_parts(parts, Body::from(body_bytes));
-            
+
             if method == "tools/list" {
                 return filter_tools_response(response, &governance).await;
             }
-            
+
             Ok(response)
         }
         Err(msg) => {
@@ -382,10 +485,12 @@ async fn handle_server_proxy(
                 latency_ms,
                 false,
                 None,
-            ).await {
+            )
+            .await
+            {
                 tracing::error!("Failed to record audit log: {}", e);
             }
-            
+
             // Record metrics for error case
             if let Err(e) = crate::services::metrics::record_request(
                 &state.db.pool,
@@ -398,12 +503,17 @@ async fn handle_server_proxy(
                     tool_name: tool_name.as_deref(),
                     latency_ms,
                     success: false,
-                }
-            ).await {
+                },
+            )
+            .await
+            {
                 tracing::error!("Failed to record metrics: {}", e);
             }
-            
-            Err((StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, msg)))
+
+            Err((
+                StatusCode::BAD_GATEWAY,
+                format!("{}: {}", error::PROXY_ERROR, msg),
+            ))
         }
     }
 }
@@ -415,7 +525,11 @@ struct GatewayRow {
     slug: String,
 }
 
-async fn get_gateway_by_slug(state: &AppState, slug: &str, org_id: Uuid) -> Result<GatewayRow, String> {
+async fn get_gateway_by_slug(
+    state: &AppState,
+    slug: &str,
+    org_id: Uuid,
+) -> Result<GatewayRow, String> {
     sqlx::query_as::<_, GatewayRow>(SQL_SELECT_GATEWAY)
         .bind(slug)
         .bind(org_id)
@@ -443,59 +557,113 @@ async fn handle_gateway_proxy(
 ) -> Result<Response, (StatusCode, String)> {
     let start = std::time::Instant::now();
     tracing::info!("Gateway proxy: {}", gateway.name);
-    
-    let servers = get_gateway_servers(state, gateway.id).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get gateway servers: {}", e)))?;
-    
+
+    let servers = get_gateway_servers(state, gateway.id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to get gateway servers: {}", e),
+        )
+    })?;
+
     if servers.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Gateway has no servers".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Gateway has no servers".to_string(),
+        ));
     }
-    
+
     let body_bytes = axum::body::to_bytes(body, 10 * 1024 * 1024)
         .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{}: {}", error::FAILED_TO_READ_BODY, e)))?;
-    
-    let request: serde_json::Value = serde_json::from_slice(&body_bytes)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{}: {}", error::INVALID_JSON, e)))?;
-    
-    let method = request.get("method")
-        .and_then(|m| m.as_str())
-        .unwrap_or("");
-    
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("{}: {}", error::FAILED_TO_READ_BODY, e),
+            )
+        })?;
+
+    let request: serde_json::Value = serde_json::from_slice(&body_bytes).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("{}: {}", error::INVALID_JSON, e),
+        )
+    })?;
+
+    let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
     // Scope validation: check permissions based on method
     validate_scope_for_method(auth, method)?;
-    
+
     // Extract tool_name when method is tools/call
     let tool_name = if method == "tools/call" {
-        request.get("params")
+        request
+            .get("params")
             .and_then(|p| p.get("name"))
             .and_then(|n| n.as_str())
             .map(|s| s.to_string())
     } else {
         None
     };
-    
+
     let result = match method {
-        "initialize" => handle_gateway_initialize(state, &gateway, org_id, &servers, headers.clone(), body_bytes.to_vec()).await,
-        "tools/list" => handle_gateway_tools_list(state, &gateway, &servers, headers.clone(), &request, body_bytes.to_vec()).await,
-        "tools/call" => handle_gateway_tools_call(state, &gateway, &servers, headers.clone(), &request, body_bytes.to_vec()).await,
+        "initialize" => {
+            handle_gateway_initialize(
+                state,
+                &gateway,
+                org_id,
+                &servers,
+                headers.clone(),
+                body_bytes.to_vec(),
+            )
+            .await
+        }
+        "tools/list" => {
+            handle_gateway_tools_list(
+                state,
+                &gateway,
+                &servers,
+                headers.clone(),
+                &request,
+                body_bytes.to_vec(),
+            )
+            .await
+        }
+        "tools/call" => {
+            handle_gateway_tools_call(
+                state,
+                &gateway,
+                &servers,
+                headers.clone(),
+                &request,
+                body_bytes.to_vec(),
+            )
+            .await
+        }
         _ => {
             // For other methods (like notifications/initialized), translate gateway session to server session
             if let Some(server) = servers.first() {
-                let auth_headers = build_auth_headers(state, server).await
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
-                
+                let auth_headers = build_auth_headers(state, server).await.map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("{}: {}", error::AUTH_ERROR, e),
+                    )
+                })?;
+
                 // Get gateway session ID from headers and translate to server session
                 let mut modified_headers = headers.clone();
-                if let Some(gw_session) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok()) {
+                if let Some(gw_session) =
+                    headers.get("mcp-session-id").and_then(|v| v.to_str().ok())
+                {
                     if gw_session.starts_with("gw_") {
                         // Look up server session from gateway session
-                        if let Ok(Some(server_sessions)) = sqlx::query_scalar::<_, serde_json::Value>(SQL_SELECT_GATEWAY_SESSION)
-                            .bind(gw_session)
-                            .fetch_optional(&state.db.pool)
-                            .await
+                        if let Ok(Some(server_sessions)) =
+                            sqlx::query_scalar::<_, serde_json::Value>(SQL_SELECT_GATEWAY_SESSION)
+                                .bind(gw_session)
+                                .fetch_optional(&state.db.pool)
+                                .await
                         {
-                            if let Some(server_session) = server_sessions.get(&server.name).and_then(|v| v.as_str()) {
+                            if let Some(server_session) =
+                                server_sessions.get(&server.name).and_then(|v| v.as_str())
+                            {
                                 if let Ok(header_value) = server_session.parse() {
                                     modified_headers.insert("mcp-session-id", header_value);
                                 }
@@ -503,9 +671,20 @@ async fn handle_gateway_proxy(
                         }
                     }
                 }
-                
-                forward_request(&server.url, modified_headers, auth_headers, body_bytes.to_vec()).await
-                    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)))
+
+                forward_request(
+                    &server.url,
+                    modified_headers,
+                    auth_headers,
+                    body_bytes.to_vec(),
+                )
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        format!("{}: {}", error::PROXY_ERROR, e),
+                    )
+                })
             } else {
                 Err((StatusCode::BAD_REQUEST, "No servers in gateway".to_string()))
             }
@@ -519,17 +698,17 @@ async fn handle_gateway_proxy(
     match result {
         Ok(response) => {
             let status_code = response.status().as_u16() as i32;
-            
+
             // Read response body bytes to capture for audit
             let (parts, body) = response.into_parts();
             let body_bytes = axum::body::to_bytes(body, 10 * 1024 * 1024)
                 .await
                 .unwrap_or_default();
-            
+
             // Parse response body as JSON for audit log
             // First try direct JSON, then try extracting from SSE format (data: {...})
-            let response_body_json: Option<serde_json::Value> = serde_json::from_slice(&body_bytes).ok()
-                .or_else(|| {
+            let response_body_json: Option<serde_json::Value> =
+                serde_json::from_slice(&body_bytes).ok().or_else(|| {
                     // Try to parse as SSE - extract JSON from "data: {...}" lines
                     let body_str = std::str::from_utf8(&body_bytes).ok()?;
                     let mut lines = Vec::new();
@@ -540,18 +719,22 @@ async fn handle_gateway_proxy(
                             }
                         }
                     }
-                    if lines.is_empty() { None } else { Some(serde_json::Value::Array(lines)) }
+                    if lines.is_empty() {
+                        None
+                    } else {
+                        Some(serde_json::Value::Array(lines))
+                    }
                 });
-            
+
             // Check if JSON-RPC response contains an error
             let has_jsonrpc_error = response_body_json
                 .as_ref()
                 .and_then(|v| v.get("error"))
                 .map(|e| !e.is_null())
                 .unwrap_or(false);
-            
+
             let actual_success = (200..300).contains(&status_code) && !has_jsonrpc_error;
-            
+
             // Extract error message if present
             let error_message = if has_jsonrpc_error {
                 response_body_json
@@ -563,7 +746,7 @@ async fn handle_gateway_proxy(
             } else {
                 None
             };
-            
+
             // Record audit log with full request/response
             if let Err(e) = crate::services::audit::record_audit_log(
                 &state.db.pool,
@@ -580,10 +763,12 @@ async fn handle_gateway_proxy(
                 latency_ms,
                 actual_success,
                 None,
-            ).await {
+            )
+            .await
+            {
                 tracing::error!("Failed to record audit log: {}", e);
             }
-            
+
             // Record metrics with correct success status (detects JSON-RPC errors)
             if let Err(e) = crate::services::metrics::record_request(
                 &state.db.pool,
@@ -596,11 +781,13 @@ async fn handle_gateway_proxy(
                     tool_name: tool_name.as_deref(),
                     latency_ms,
                     success: actual_success,
-                }
-            ).await {
+                },
+            )
+            .await
+            {
                 tracing::error!("Failed to record metrics: {}", e);
             }
-            
+
             // Reconstruct response with the same body
             Ok(Response::from_parts(parts, Body::from(body_bytes)))
         }
@@ -621,10 +808,12 @@ async fn handle_gateway_proxy(
                 latency_ms,
                 false,
                 None,
-            ).await {
+            )
+            .await
+            {
                 tracing::error!("Failed to record audit log: {}", e);
             }
-            
+
             // Record metrics for error case
             if let Err(e) = crate::services::metrics::record_request(
                 &state.db.pool,
@@ -637,11 +826,13 @@ async fn handle_gateway_proxy(
                     tool_name: tool_name.as_deref(),
                     latency_ms,
                     success: false,
-                }
-            ).await {
+                },
+            )
+            .await
+            {
                 tracing::error!("Failed to record metrics: {}", e);
             }
-            
+
             Err((status, msg))
         }
     }
@@ -656,29 +847,45 @@ async fn handle_gateway_initialize(
     body: Vec<u8>,
 ) -> Result<Response, (StatusCode, String)> {
     let gateway_session_id = format!("gw_{}", Uuid::new_v4().to_string().replace("-", ""));
-    let mut server_sessions: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut server_sessions: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     let mut last_response: Option<Response> = None;
-    
+
     for server in servers {
-        let auth_headers = build_auth_headers(state, server).await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e)))?;
-        
-        let response = forward_request(&server.url, headers.clone(), auth_headers, body.clone()).await
-            .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to initialize {}: {}", server.name, e)))?;
-        
-        let session_id = response.headers()
+        let auth_headers = build_auth_headers(state, server).await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::AUTH_ERROR, e),
+            )
+        })?;
+
+        let response = forward_request(&server.url, headers.clone(), auth_headers, body.clone())
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("Failed to initialize {}: {}", server.name, e),
+                )
+            })?;
+
+        let session_id = response
+            .headers()
             .get("mcp-session-id")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_string();
-        
+
         server_sessions.insert(server.name.clone(), session_id);
         last_response = Some(response);
     }
-    
-    let sessions_json = serde_json::to_value(&server_sessions)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;
-    
+
+    let sessions_json = serde_json::to_value(&server_sessions).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("JSON error: {}", e),
+        )
+    })?;
+
     sqlx::query(SQL_UPSERT_GATEWAY_SESSION)
         .bind(&gateway_session_id)
         .bind(gateway.id)
@@ -686,20 +893,24 @@ async fn handle_gateway_initialize(
         .bind(&sessions_json)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to save session: {}", e)))?;
-    
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to save session: {}", e),
+            )
+        })?;
+
     let mut response = last_response.unwrap_or_else(|| {
         Response::builder()
             .status(StatusCode::OK)
             .body(Body::empty())
             .unwrap()
     });
-    
-    response.headers_mut().insert(
-        "mcp-session-id",
-        gateway_session_id.parse().unwrap(),
-    );
-    
+
+    response
+        .headers_mut()
+        .insert("mcp-session-id", gateway_session_id.parse().unwrap());
+
     Ok(response)
 }
 
@@ -718,29 +929,35 @@ async fn handle_gateway_tools_list(
         #[serde(rename = "inputSchema")]
         input_schema: serde_json::Value,
     }
-    
+
     let mut all_tools: Vec<AggregatedTool> = Vec::new();
-    
+
     for server in servers {
-        let governance = get_governance_config(state, server.id).await
+        let governance = get_governance_config(state, server.id)
+            .await
             .unwrap_or_default();
-        
+
         let (auth_header_name, auth_header_value) = get_server_auth_headers(state, server).await;
-        
-        let tools = mcp_client::list_tools_from_server(&server.url, auth_header_name.as_deref(), auth_header_value.as_deref()).await;
-        
+
+        let tools = mcp_client::list_tools_from_server(
+            &server.url,
+            auth_header_name.as_deref(),
+            auth_header_value.as_deref(),
+        )
+        .await;
+
         match tools {
             Ok(tools) => {
                 for tool in tools {
                     let original_name = tool.name.clone();
-                    
+
                     if !governance.is_tool_allowed(&original_name) {
                         continue;
                     }
-                    
+
                     // Only use governance prefix, no server name prefix
                     let final_name = governance.add_prefix(&original_name);
-                    
+
                     all_tools.push(AggregatedTool {
                         name: final_name,
                         description: tool.description,
@@ -753,9 +970,9 @@ async fn handle_gateway_tools_list(
             }
         }
     }
-    
+
     let request_id = request.get("id").cloned().unwrap_or(serde_json::json!(1));
-    
+
     let response_json = serde_json::json!({
         "jsonrpc": "2.0",
         "id": request_id,
@@ -763,16 +980,15 @@ async fn handle_gateway_tools_list(
             "tools": all_tools
         }
     });
-    
+
     let sse_body = format!("data: {}\n\n", response_json);
-    
+
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "text/event-stream")
         .body(Body::from(sse_body))
         .unwrap())
 }
-
 
 async fn handle_gateway_tools_call(
     state: &AppState,
@@ -787,47 +1003,49 @@ async fn handle_gateway_tools_call(
         .and_then(|p| p.get("name"))
         .and_then(|n| n.as_str())
         .ok_or((StatusCode::BAD_REQUEST, "Missing tool name".to_string()))?;
-    
+
     tracing::info!("Gateway tools/call: looking for tool '{}'", tool_name);
-    
+
     // Try each server to find one that has this tool
     for server in servers {
-        let governance = get_governance_config(state, server.id).await.unwrap_or_default();
-        
+        let governance = get_governance_config(state, server.id)
+            .await
+            .unwrap_or_default();
+
         tracing::debug!(
-            "Server '{}': prefix='{}', auth_type={:?}", 
-            server.name, 
+            "Server '{}': prefix='{}', auth_type={:?}",
+            server.name,
             governance.tool_prefix,
             server.auth_type
         );
-        
+
         // Strip governance prefix to get original tool name
         let original_tool_name = governance.strip_prefix(tool_name);
-        
+
         // Check if this tool is allowed by governance
         if !governance.is_tool_allowed(original_tool_name) {
             tracing::debug!("Tool '{}' not allowed by governance", original_tool_name);
             continue;
         }
-        
+
         // Check if this was the right server (prefix matched)
         let expected_prefixed = governance.add_prefix(original_tool_name);
         if expected_prefixed != tool_name {
             tracing::debug!(
-                "Prefix mismatch: expected '{}' but got '{}'", 
-                expected_prefixed, 
+                "Prefix mismatch: expected '{}' but got '{}'",
+                expected_prefixed,
                 tool_name
             );
             continue;
         }
-        
+
         tracing::info!(
-            "Routing tool '{}' to server '{}' (original: '{}')", 
-            tool_name, 
-            server.name, 
+            "Routing tool '{}' to server '{}' (original: '{}')",
+            tool_name,
+            server.name,
             original_tool_name
         );
-        
+
         // Found the right server - forward the request
         let mut modified_request = request.clone();
         if let Some(params) = modified_request.get_mut("params") {
@@ -835,44 +1053,69 @@ async fn handle_gateway_tools_call(
                 *name = serde_json::json!(original_tool_name);
             }
         }
-        
-        let modified_body = serde_json::to_vec(&modified_request)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;
-        
-        let auth_headers = build_auth_headers(state, server).await
-            .map_err(|e| {
-                tracing::error!("Auth error for server '{}': {}", server.name, e);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::AUTH_ERROR, e))
-            })?;
-        
+
+        let modified_body = serde_json::to_vec(&modified_request).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("JSON error: {}", e),
+            )
+        })?;
+
+        let auth_headers = build_auth_headers(state, server).await.map_err(|e| {
+            tracing::error!("Auth error for server '{}': {}", server.name, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::AUTH_ERROR, e),
+            )
+        })?;
+
         tracing::debug!("Auth headers count: {}", auth_headers.len());
-        
+
         // Translate gateway session ID to server session ID
         let mut modified_headers = headers.clone();
         if let Some(gw_session) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok()) {
             if gw_session.starts_with("gw_") {
                 // Look up server session from gateway session
-                if let Ok(Some(server_sessions)) = sqlx::query_scalar::<_, serde_json::Value>(SQL_SELECT_GATEWAY_SESSION)
-                    .bind(gw_session)
-                    .fetch_optional(&state.db.pool)
-                    .await
+                if let Ok(Some(server_sessions)) =
+                    sqlx::query_scalar::<_, serde_json::Value>(SQL_SELECT_GATEWAY_SESSION)
+                        .bind(gw_session)
+                        .fetch_optional(&state.db.pool)
+                        .await
                 {
-                    if let Some(server_session) = server_sessions.get(&server.name).and_then(|v| v.as_str()) {
+                    if let Some(server_session) =
+                        server_sessions.get(&server.name).and_then(|v| v.as_str())
+                    {
                         if let Ok(header_value) = server_session.parse() {
                             modified_headers.insert("mcp-session-id", header_value);
-                            tracing::debug!("Translated gateway session to server session for '{}'", server.name);
+                            tracing::debug!(
+                                "Translated gateway session to server session for '{}'",
+                                server.name
+                            );
                         }
                     }
                 }
             }
         }
-        
-        return forward_request(&server.url, modified_headers, auth_headers, modified_body).await
-            .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}: {}", error::PROXY_ERROR, e)));
+
+        return forward_request(&server.url, modified_headers, auth_headers, modified_body)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("{}: {}", error::PROXY_ERROR, e),
+                )
+            });
     }
-    
-    tracing::warn!("Tool '{}' not found in any of {} gateway servers", tool_name, servers.len());
-    Err((StatusCode::NOT_FOUND, format!("Tool '{}' not found in any gateway server", tool_name)))
+
+    tracing::warn!(
+        "Tool '{}' not found in any of {} gateway servers",
+        tool_name,
+        servers.len()
+    );
+    Err((
+        StatusCode::NOT_FOUND,
+        format!("Tool '{}' not found in any gateway server", tool_name),
+    ))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -886,22 +1129,19 @@ impl GovernanceConfig {
     pub fn has_filter(&self) -> bool {
         !self.allowed_tools.is_empty() || !self.denied_tools.is_empty()
     }
-    
+
     pub fn is_tool_allowed(&self, tool_name: &str) -> bool {
-    
         if !self.allowed_tools.is_empty() {
             return self.allowed_tools.iter().any(|t| t == tool_name);
         }
-        
-    
+
         if !self.denied_tools.is_empty() {
             return !self.denied_tools.iter().any(|t| t == tool_name);
         }
-        
-    
+
         true
     }
-    
+
     pub fn add_prefix(&self, tool_name: &str) -> String {
         if self.tool_prefix.is_empty() {
             tool_name.to_string()
@@ -909,12 +1149,12 @@ impl GovernanceConfig {
             format!("{}_{}", self.tool_prefix, tool_name)
         }
     }
-    
+
     pub fn strip_prefix<'a>(&self, tool_name: &'a str) -> &'a str {
         if self.tool_prefix.is_empty() {
             return tool_name;
         }
-        
+
         let prefix = format!("{}_", self.tool_prefix);
         tool_name.strip_prefix(&prefix).unwrap_or(tool_name)
     }
@@ -964,23 +1204,30 @@ struct McpTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     annotations: Option<serde_json::Value>,
 }
-async fn get_server_by_name(state: &AppState, name: &str, org_id: Uuid) -> Result<ServerRow, String> {
+async fn get_server_by_name(
+    state: &AppState,
+    name: &str,
+    org_id: Uuid,
+) -> Result<ServerRow, String> {
     sqlx::query_as::<_, ServerRow>(SQL_SELECT_SERVER)
-    .bind(name)
-    .bind(org_id)
-    .fetch_optional(&state.db.pool)
-    .await
-    .map_err(|e| format!("{}: {}", error::DATABASE_ERROR, e))?
-    .ok_or_else(|| error::SERVER_NOT_FOUND.to_string())
+        .bind(name)
+        .bind(org_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| format!("{}: {}", error::DATABASE_ERROR, e))?
+        .ok_or_else(|| error::SERVER_NOT_FOUND.to_string())
 }
 
-async fn get_governance_config(state: &AppState, server_id: Uuid) -> Result<GovernanceConfig, String> {
+async fn get_governance_config(
+    state: &AppState,
+    server_id: Uuid,
+) -> Result<GovernanceConfig, String> {
     let row: Option<GovernanceRow> = sqlx::query_as(SQL_SELECT_GOVERNANCE)
-    .bind(server_id)
-    .fetch_optional(&state.db.pool)
-    .await
-    .map_err(|e| format!("{}: {}", error::DATABASE_ERROR, e))?;
-    
+        .bind(server_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| format!("{}: {}", error::DATABASE_ERROR, e))?;
+
     match row {
         Some(r) => Ok(GovernanceConfig {
             allowed_tools: json_to_vec(&r.allowed_tools),
@@ -992,104 +1239,138 @@ async fn get_governance_config(state: &AppState, server_id: Uuid) -> Result<Gove
 }
 
 fn json_to_vec(value: &serde_json::Value) -> Vec<String> {
-    value.as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+    value
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default()
 }
-fn handle_tools_call(request: &serde_json::Value, governance: &GovernanceConfig) -> Result<Vec<u8>, (StatusCode, String)> {
-
+fn handle_tools_call(
+    request: &serde_json::Value,
+    governance: &GovernanceConfig,
+) -> Result<Vec<u8>, (StatusCode, String)> {
     let tool_name = request
         .get("params")
         .and_then(|p| p.get("name"))
         .and_then(|n| n.as_str())
         .unwrap_or("");
-    
+
     if tool_name.is_empty() {
-    
-        return serde_json::to_vec(request)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)));
+        return serde_json::to_vec(request).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("JSON error: {}", e),
+            )
+        });
     }
-    
 
     let original_name = governance.strip_prefix(tool_name);
-    
 
     if !governance.is_tool_allowed(original_name) {
         return Err((
             StatusCode::FORBIDDEN,
-            format!("Tool '{}' is not allowed by governance policy", original_name),
+            format!(
+                "Tool '{}' is not allowed by governance policy",
+                original_name
+            ),
         ));
     }
-    
 
     if original_name != tool_name {
         let mut modified = request.clone();
         if let Some(params) = modified.get_mut("params") {
             if let Some(obj) = params.as_object_mut() {
-                obj.insert("name".to_string(), serde_json::Value::String(original_name.to_string()));
+                obj.insert(
+                    "name".to_string(),
+                    serde_json::Value::String(original_name.to_string()),
+                );
             }
         }
-        return serde_json::to_vec(&modified)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)));
+        return serde_json::to_vec(&modified).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("JSON error: {}", e),
+            )
+        });
     }
-    
-    serde_json::to_vec(request)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))
+
+    serde_json::to_vec(request).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("JSON error: {}", e),
+        )
+    })
 }
 
-async fn filter_tools_response(response: Response, governance: &GovernanceConfig) -> Result<Response, (StatusCode, String)> {
-
+async fn filter_tools_response(
+    response: Response,
+    governance: &GovernanceConfig,
+) -> Result<Response, (StatusCode, String)> {
     if !governance.has_filter() && governance.tool_prefix.is_empty() {
         return Ok(response);
     }
-    
+
     let status = response.status();
     let headers = response.headers().clone();
-    
 
     let body_bytes = axum::body::to_bytes(response.into_body(), 10 * 1024 * 1024)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read response: {}", e)))?;
-    
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to read response: {}", e),
+            )
+        })?;
 
     let body_str = String::from_utf8_lossy(&body_bytes);
-    
 
     if body_str.contains("event:") && body_str.contains("data:") {
-    
         let filtered = filter_sse_response(&body_str, governance);
-        
+
         let mut builder = Response::builder().status(status);
         for (name, value) in headers.iter() {
             if name != "transfer-encoding" && name != "connection" && name != "content-length" {
                 builder = builder.header(name.as_str(), value.to_str().unwrap_or(""));
             }
         }
-        
-        return builder.body(Body::from(filtered))
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to build response: {}", e)));
+
+        return builder.body(Body::from(filtered)).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to build response: {}", e),
+            )
+        });
     }
-    
 
     if let Ok(mut json_response) = serde_json::from_slice::<McpToolsListResponse>(&body_bytes) {
         if let Some(ref mut result) = json_response.result {
             result.tools = filter_tools(&result.tools, governance);
         }
-        
-        let filtered_body = serde_json::to_vec(&json_response)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {}", e)))?;
-        
+
+        let filtered_body = serde_json::to_vec(&json_response).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("JSON error: {}", e),
+            )
+        })?;
+
         let mut builder = Response::builder().status(status);
         for (name, value) in headers.iter() {
             if name != "transfer-encoding" && name != "connection" && name != "content-length" {
                 builder = builder.header(name.as_str(), value.to_str().unwrap_or(""));
             }
         }
-        
-        return builder.body(Body::from(filtered_body))
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to build response: {}", e)));
+
+        return builder.body(Body::from(filtered_body)).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to build response: {}", e),
+            )
+        });
     }
-    
 
     let mut builder = Response::builder().status(status);
     for (name, value) in headers.iter() {
@@ -1097,9 +1378,13 @@ async fn filter_tools_response(response: Response, governance: &GovernanceConfig
             builder = builder.header(name.as_str(), value.to_str().unwrap_or(""));
         }
     }
-    
-    builder.body(Body::from(body_bytes.to_vec()))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to build response: {}", e)))
+
+    builder.body(Body::from(body_bytes.to_vec())).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to build response: {}", e),
+        )
+    })
 }
 
 fn filter_sse_response(body: &str, governance: &GovernanceConfig) -> String {
@@ -1107,19 +1392,20 @@ fn filter_sse_response(body: &str, governance: &GovernanceConfig) -> String {
     let mut current_event = String::new();
     #[allow(unused_assignments)]
     let mut current_data = String::new();
-    
+
     for line in body.lines() {
         if line.starts_with("event:") {
             current_event = line.to_string();
         } else if let Some(data) = line.strip_prefix("data:") {
             current_data = data.trim().to_string();
-            
-        
-            if let Ok(mut json_response) = serde_json::from_str::<McpToolsListResponse>(&current_data) {
+
+            if let Ok(mut json_response) =
+                serde_json::from_str::<McpToolsListResponse>(&current_data)
+            {
                 if let Some(ref mut res) = json_response.result {
                     res.tools = filter_tools(&res.tools, governance);
                 }
-                
+
                 if let Ok(filtered_json) = serde_json::to_string(&json_response) {
                     result.push_str(&current_event);
                     result.push('\n');
@@ -1129,8 +1415,7 @@ fn filter_sse_response(body: &str, governance: &GovernanceConfig) -> String {
                     continue;
                 }
             }
-            
-        
+
             result.push_str(&current_event);
             result.push('\n');
             result.push_str("data: ");
@@ -1143,12 +1428,13 @@ fn filter_sse_response(body: &str, governance: &GovernanceConfig) -> String {
             result.push('\n');
         }
     }
-    
+
     result
 }
 
 fn filter_tools(tools: &[McpTool], governance: &GovernanceConfig) -> Vec<McpTool> {
-    tools.iter()
+    tools
+        .iter()
         .filter(|t| governance.is_tool_allowed(&t.name))
         .map(|t| {
             let mut tool = t.clone();
@@ -1157,13 +1443,14 @@ fn filter_tools(tools: &[McpTool], governance: &GovernanceConfig) -> Vec<McpTool
         })
         .collect()
 }
-async fn build_auth_headers(state: &AppState, server: &ServerRow) -> Result<Vec<(String, String)>, String> {
+async fn build_auth_headers(
+    state: &AppState,
+    server: &ServerRow,
+) -> Result<Vec<(String, String)>, String> {
     let mut headers = Vec::new();
-    
+
     match server.auth_type.as_deref() {
-        Some("none") | None => {
-        
-        }
+        Some("none") | None => {}
         Some("api_key") => {
             if let Some(encrypted) = get_credential(state, server.id, "api_key").await? {
                 let key = crypto::derive_key(&state.config.encryption_key);
@@ -1183,16 +1470,18 @@ async fn build_auth_headers(state: &AppState, server: &ServerRow) -> Result<Vec<
         Some("oauth_client_credentials") => {
             let client_id = server.oauth_client_id.clone().unwrap_or_default();
             let token_url = server.oauth_token_url.clone().unwrap_or_default();
-            
-            if let Some(encrypted) = get_credential(state, server.id, "oauth_client_secret").await? {
+
+            if let Some(encrypted) = get_credential(state, server.id, "oauth_client_secret").await?
+            {
                 let key = crypto::derive_key(&state.config.encryption_key);
                 let client_secret = crypto::decrypt(&encrypted, &key)
                     .map_err(|e| format!("Failed to decrypt client secret: {}", e))?;
-                
+
                 if !client_id.is_empty() && !token_url.is_empty() {
                     // Fetch token from token endpoint
                     let client = reqwest::Client::new();
-                    let token_response = client.post(&token_url)
+                    let token_response = client
+                        .post(&token_url)
                         .json(&serde_json::json!({
                             "grant_type": "client_credentials",
                             "client_id": client_id,
@@ -1201,25 +1490,38 @@ async fn build_auth_headers(state: &AppState, server: &ServerRow) -> Result<Vec<
                         .send()
                         .await
                         .map_err(|e| format!("Failed to fetch token: {}", e))?;
-                    
+
                     if token_response.status().is_success() {
-                        let json: serde_json::Value = token_response.json().await
+                        let json: serde_json::Value = token_response
+                            .json()
+                            .await
                             .map_err(|e| format!("Failed to parse token response: {}", e))?;
-                        
-                        if let Some(access_token) = json.get("access_token").and_then(|v| v.as_str()) {
-                            headers.push(("Authorization".to_string(), format!("Bearer {}", access_token)));
+
+                        if let Some(access_token) =
+                            json.get("access_token").and_then(|v| v.as_str())
+                        {
+                            headers.push((
+                                "Authorization".to_string(),
+                                format!("Bearer {}", access_token),
+                            ));
                         } else {
                             return Err("Token response missing access_token".to_string());
                         }
                     } else {
-                        return Err(format!("Token endpoint returned error: {}", token_response.status()));
+                        return Err(format!(
+                            "Token endpoint returned error: {}",
+                            token_response.status()
+                        ));
                     }
                 }
             }
         }
         Some("oauth_auto") => {
             if let Some(access_token) = get_oauth_token(state, server).await? {
-                headers.push(("Authorization".to_string(), format!("Bearer {}", access_token)));
+                headers.push((
+                    "Authorization".to_string(),
+                    format!("Bearer {}", access_token),
+                ));
             } else {
                 return Err("OAuth token not available - re-authorization needed".to_string());
             }
@@ -1228,20 +1530,24 @@ async fn build_auth_headers(state: &AppState, server: &ServerRow) -> Result<Vec<
             tracing::warn!("Unknown auth type: {}", other);
         }
     }
-    
+
     Ok(headers)
 }
 
-async fn get_credential(state: &AppState, server_id: Uuid, cred_type: &str) -> Result<Option<String>, String> {
+async fn get_credential(
+    state: &AppState,
+    server_id: Uuid,
+    cred_type: &str,
+) -> Result<Option<String>, String> {
     let row: Option<(String,)> = sqlx::query_as(
-        "SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2"
+        "SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2",
     )
     .bind(server_id)
     .bind(cred_type)
     .fetch_optional(&state.db.pool)
     .await
     .map_err(|e| format!("Failed to fetch credential: {}", e))?;
-    
+
     if let Some((encrypted,)) = row {
         Ok(Some(encrypted))
     } else {
@@ -1255,33 +1561,37 @@ async fn get_oauth_token(state: &AppState, server: &ServerRow) -> Result<Option<
     // we use the first available token for this server.
     // TODO: Consider API key auth for proxy endpoints or passing user context via headers.
     let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
-        "SELECT access_token_encrypted, expires_at FROM oauth_tokens WHERE server_id = $1 LIMIT 1"
+        "SELECT access_token_encrypted, expires_at FROM oauth_tokens WHERE server_id = $1 LIMIT 1",
     )
     .bind(server.id)
     .fetch_optional(&state.db.pool)
     .await
     .map_err(|e| format!("Failed to fetch OAuth token: {}", e))?;
-    
+
     if let Some((encrypted, expires_at)) = row {
         if let Some(exp) = expires_at {
             if exp < chrono::Utc::now() {
                 return Err("OAuth token expired".to_string());
             }
         }
-        
+
         let key = crypto::derive_key(&state.config.encryption_key);
         let token = crypto::decrypt(&encrypted, &key)
             .map_err(|e| format!("Failed to decrypt token: {}", e))?;
-        
+
         Ok(Some(token))
     } else {
         Ok(None)
     }
 }
 
-const SQL_SELECT_CREDENTIAL_PROXY: &str = "SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2";
+const SQL_SELECT_CREDENTIAL_PROXY: &str =
+    "SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2";
 
-async fn get_server_auth_headers(state: &AppState, server: &ServerRow) -> (Option<String>, Option<String>) {
+async fn get_server_auth_headers(
+    state: &AppState,
+    server: &ServerRow,
+) -> (Option<String>, Option<String>) {
     match server.auth_type.as_deref() {
         Some("api_key") => {
             let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL_PROXY)
@@ -1291,12 +1601,12 @@ async fn get_server_auth_headers(state: &AppState, server: &ServerRow) -> (Optio
                 .await
                 .ok()
                 .flatten();
-            
+
             if let Some((encrypted,)) = row {
                 let key = crypto::derive_key(&state.config.encryption_key);
                 match crypto::decrypt(&encrypted, &key) {
                     Ok(api_key) => (Some("X-API-Key".to_string()), Some(api_key)),
-                    Err(_) => (None, None)
+                    Err(_) => (None, None),
                 }
             } else {
                 (None, None)
@@ -1310,12 +1620,15 @@ async fn get_server_auth_headers(state: &AppState, server: &ServerRow) -> (Optio
                 .await
                 .ok()
                 .flatten();
-            
+
             if let Some((encrypted,)) = row {
                 let key = crypto::derive_key(&state.config.encryption_key);
                 match crypto::decrypt(&encrypted, &key) {
-                    Ok(token) => (Some("Authorization".to_string()), Some(format!("Bearer {}", token))),
-                    Err(_) => (None, None)
+                    Ok(token) => (
+                        Some("Authorization".to_string()),
+                        Some(format!("Bearer {}", token)),
+                    ),
+                    Err(_) => (None, None),
                 }
             } else {
                 (None, None)
@@ -1324,7 +1637,7 @@ async fn get_server_auth_headers(state: &AppState, server: &ServerRow) -> (Optio
         Some("oauth_client_credentials") => {
             let client_id = server.oauth_client_id.clone().unwrap_or_default();
             let token_url = server.oauth_token_url.clone().unwrap_or_default();
-            
+
             let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL_PROXY)
                 .bind(server.id)
                 .bind("oauth_client_secret")
@@ -1332,20 +1645,21 @@ async fn get_server_auth_headers(state: &AppState, server: &ServerRow) -> (Optio
                 .await
                 .ok()
                 .flatten();
-            
+
             let client_secret = if let Some((encrypted,)) = row {
                 let key = crypto::derive_key(&state.config.encryption_key);
                 crypto::decrypt(&encrypted, &key).ok()
             } else {
                 None
             };
-            
+
             if client_id.is_empty() || token_url.is_empty() {
                 (None, None)
             } else if let Some(secret) = client_secret {
                 // Fetch token from token endpoint
                 let client = reqwest::Client::new();
-                let token_response = client.post(&token_url)
+                let token_response = client
+                    .post(&token_url)
                     .json(&serde_json::json!({
                         "grant_type": "client_credentials",
                         "client_id": client_id,
@@ -1353,12 +1667,17 @@ async fn get_server_auth_headers(state: &AppState, server: &ServerRow) -> (Optio
                     }))
                     .send()
                     .await;
-                
+
                 match token_response {
                     Ok(resp) if resp.status().is_success() => {
                         if let Ok(json) = resp.json::<serde_json::Value>().await {
-                            if let Some(access_token) = json.get("access_token").and_then(|v| v.as_str()) {
-                                (Some("Authorization".to_string()), Some(format!("Bearer {}", access_token)))
+                            if let Some(access_token) =
+                                json.get("access_token").and_then(|v| v.as_str())
+                            {
+                                (
+                                    Some("Authorization".to_string()),
+                                    Some(format!("Bearer {}", access_token)),
+                                )
                             } else {
                                 (None, None)
                             }
@@ -1366,19 +1685,20 @@ async fn get_server_auth_headers(state: &AppState, server: &ServerRow) -> (Optio
                             (None, None)
                         }
                     }
-                    _ => (None, None)
+                    _ => (None, None),
                 }
             } else {
                 (None, None)
             }
         }
-        Some("oauth_auto") => {
-            match get_oauth_token(state, server).await {
-                Ok(Some(token)) => (Some("Authorization".to_string()), Some(format!("Bearer {}", token))),
-                _ => (None, None)
-            }
-        }
-        _ => (None, None)
+        Some("oauth_auto") => match get_oauth_token(state, server).await {
+            Ok(Some(token)) => (
+                Some("Authorization".to_string()),
+                Some(format!("Bearer {}", token)),
+            ),
+            _ => (None, None),
+        },
+        _ => (None, None),
     }
 }
 
@@ -1390,48 +1710,50 @@ async fn forward_request(
 ) -> Result<Response, String> {
     let client = reqwest::Client::new();
     let mut req_builder = client.post(target_url);
-    
 
     if let Some(content_type) = original_headers.get("content-type") {
-        req_builder = req_builder.header("Content-Type", content_type.to_str().unwrap_or("application/json"));
+        req_builder = req_builder.header(
+            "Content-Type",
+            content_type.to_str().unwrap_or("application/json"),
+        );
     } else {
         req_builder = req_builder.header("Content-Type", "application/json");
     }
-    
 
     req_builder = req_builder.header("Accept", "application/json, text/event-stream");
-    
 
     if let Some(session_id) = original_headers.get("mcp-session-id") {
         req_builder = req_builder.header("Mcp-Session-Id", session_id.to_str().unwrap_or(""));
     }
-    
 
     for (name, value) in auth_headers {
         req_builder = req_builder.header(&name, &value);
     }
-    
-    req_builder = req_builder.body(body);
-    
 
-    let response = req_builder.send().await
+    req_builder = req_builder.body(body);
+
+    let response = req_builder
+        .send()
+        .await
         .map_err(|e| format!("Request failed: {}", e))?;
-    
 
     let status = response.status();
     let headers = response.headers().clone();
-    let body_bytes = response.bytes().await
+    let body_bytes = response
+        .bytes()
+        .await
         .map_err(|e| format!("Failed to read response: {}", e))?;
-    
+
     let mut builder = Response::builder().status(status.as_u16());
-    
+
     for (name, value) in headers.iter() {
         if name != "transfer-encoding" && name != "connection" {
             builder = builder.header(name.as_str(), value.to_str().unwrap_or(""));
         }
     }
-    
-    builder.body(Body::from(body_bytes.to_vec()))
+
+    builder
+        .body(Body::from(body_bytes.to_vec()))
         .map_err(|e| format!("Failed to build response: {}", e))
 }
 
@@ -1746,7 +2068,7 @@ mod tests {
         fn m2m_tools_list_requires_server_read() {
             let auth_with_read = make_m2m_auth(vec!["mcp:server:read"]);
             let auth_without_read = make_m2m_auth(vec!["mcp:tool:execute"]);
-            
+
             assert!(validate_scope_for_method(&auth_with_read, "tools/list").is_ok());
             assert!(validate_scope_for_method(&auth_without_read, "tools/list").is_err());
         }
@@ -1755,7 +2077,7 @@ mod tests {
         fn m2m_tools_call_requires_tool_execute() {
             let auth_with_execute = make_m2m_auth(vec!["mcp:tool:execute"]);
             let auth_without_execute = make_m2m_auth(vec!["mcp:server:read"]);
-            
+
             assert!(validate_scope_for_method(&auth_with_execute, "tools/call").is_ok());
             assert!(validate_scope_for_method(&auth_without_execute, "tools/call").is_err());
         }
@@ -1763,11 +2085,11 @@ mod tests {
         #[test]
         fn m2m_read_only_cannot_execute() {
             let auth = make_m2m_auth(vec!["mcp:server:read"]);
-            
+
             // Can read
             assert!(validate_scope_for_method(&auth, "tools/list").is_ok());
             assert!(validate_scope_for_method(&auth, "resources/list").is_ok());
-            
+
             // Cannot execute
             let result = validate_scope_for_method(&auth, "tools/call");
             assert!(result.is_err());
@@ -1779,7 +2101,7 @@ mod tests {
         #[test]
         fn m2m_full_access_can_do_everything() {
             let auth = make_m2m_auth(vec!["mcp:server:read", "mcp:tool:execute"]);
-            
+
             assert!(validate_scope_for_method(&auth, "initialize").is_ok());
             assert!(validate_scope_for_method(&auth, "tools/list").is_ok());
             assert!(validate_scope_for_method(&auth, "tools/call").is_ok());
@@ -1793,9 +2115,8 @@ mod tests {
 // ============================================
 
 use crate::services::repositories::{
-    OrgRepository, OrgData,
-    ServerRepository, ServerData,
-    GatewayRepository, GatewayData, GatewayServerData,
+    GatewayData, GatewayRepository, GatewayServerData, OrgData, OrgRepository, ServerData,
+    ServerRepository,
 };
 
 /// Verify that the authenticated user/service account has access to the specified org
@@ -1806,16 +2127,28 @@ pub async fn verify_org_access<R: OrgRepository>(
     org_slug: &str,
 ) -> Result<OrgData, (StatusCode, String)> {
     // Look up org by slug
-    let org = repo.find_by_slug(org_slug).await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?
-        .ok_or((StatusCode::NOT_FOUND, format!("Organization '{}' not found", org_slug)))?;
-    
+    let org = repo
+        .find_by_slug(org_slug)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error".to_string(),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            format!("Organization '{}' not found", org_slug),
+        ))?;
+
     // Verify the token was created for this org
     if auth.org_id != org.id {
-        return Err((StatusCode::FORBIDDEN, 
-            "Token not authorized for this organization".to_string()));
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Token not authorized for this organization".to_string(),
+        ));
     }
-    
+
     Ok(org)
 }
 
@@ -1834,38 +2167,64 @@ pub async fn resolve_proxy_target<S: ServerRepository, G: GatewayRepository>(
     target_name: &str,
 ) -> Result<ProxyTarget, (StatusCode, String)> {
     // Try to find a server first
-    if let Some(server) = server_repo.find_by_name(org_id, target_name).await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))? 
+    if let Some(server) = server_repo
+        .find_by_name(org_id, target_name)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error".to_string(),
+            )
+        })?
     {
         if !server.enabled {
-            return Err((StatusCode::SERVICE_UNAVAILABLE, 
-                format!("Server '{}' is disabled", target_name)));
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("Server '{}' is disabled", target_name),
+            ));
         }
         return Ok(ProxyTarget::Server(server));
     }
-    
+
     // Try to find a gateway
-    if let Some(gateway) = gateway_repo.find_by_slug(org_id, target_name).await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))? 
+    if let Some(gateway) = gateway_repo
+        .find_by_slug(org_id, target_name)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error".to_string(),
+            )
+        })?
     {
         if !gateway.enabled {
-            return Err((StatusCode::SERVICE_UNAVAILABLE, 
-                format!("Gateway '{}' is disabled", target_name)));
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("Gateway '{}' is disabled", target_name),
+            ));
         }
-        
-        let servers = gateway_repo.get_servers(gateway.id).await
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?;
-        
+
+        let servers = gateway_repo.get_servers(gateway.id).await.map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error".to_string(),
+            )
+        })?;
+
         if servers.is_empty() {
-            return Err((StatusCode::NOT_FOUND, 
-                format!("Gateway '{}' has no servers configured", target_name)));
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("Gateway '{}' has no servers configured", target_name),
+            ));
         }
-        
+
         return Ok(ProxyTarget::Gateway(gateway, servers));
     }
-    
-    Err((StatusCode::NOT_FOUND, 
-        format!("Server or gateway '{}' not found", target_name)))
+
+    Err((
+        StatusCode::NOT_FOUND,
+        format!("Server or gateway '{}' not found", target_name),
+    ))
 }
 
 #[cfg(test)]
@@ -1894,9 +2253,9 @@ mod authorization_tests {
             };
             let auth = make_auth(Uuid::new_v4(), org.id);
             let repo = MockOrgRepository::with_org(org.clone());
-            
+
             let result = verify_org_access(&repo, &auth, "test-org").await;
-            
+
             assert!(result.is_ok());
             assert_eq!(result.unwrap().slug, "test-org");
         }
@@ -1905,9 +2264,9 @@ mod authorization_tests {
         async fn returns_not_found_for_unknown_org() {
             let auth = make_auth(Uuid::new_v4(), Uuid::new_v4());
             let repo = MockOrgRepository::new();
-            
+
             let result = verify_org_access(&repo, &auth, "unknown-org").await;
-            
+
             assert!(result.is_err());
             let (status, _) = result.unwrap_err();
             assert_eq!(status, StatusCode::NOT_FOUND);
@@ -1924,9 +2283,9 @@ mod authorization_tests {
             // Auth was created for a different org
             let auth = make_auth(Uuid::new_v4(), Uuid::new_v4());
             let repo = MockOrgRepository::with_org(org);
-            
+
             let result = verify_org_access(&repo, &auth, "other-org").await;
-            
+
             assert!(result.is_err());
             let (status, msg) = result.unwrap_err();
             assert_eq!(status, StatusCode::FORBIDDEN);
@@ -1949,12 +2308,13 @@ mod authorization_tests {
                 enabled: true,
                 auth_type: "none".to_string(),
             };
-            
+
             let server_repo = MockServerRepository::with_server(server);
             let gateway_repo = MockGatewayRepository::new();
-            
-            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "my-server").await;
-            
+
+            let result =
+                resolve_proxy_target(&server_repo, &gateway_repo, org_id, "my-server").await;
+
             assert!(result.is_ok());
             match result.unwrap() {
                 ProxyTarget::Server(s) => assert_eq!(s.name, "my-server"),
@@ -1972,25 +2332,24 @@ mod authorization_tests {
                 slug: "my-gateway".to_string(),
                 enabled: true,
             };
-            let servers = vec![
-                GatewayServerData {
-                    server_id: Uuid::new_v4(),
-                    server_name: "server-1".to_string(),
-                    priority: 0,
-                },
-            ];
-            
+            let servers = vec![GatewayServerData {
+                server_id: Uuid::new_v4(),
+                server_name: "server-1".to_string(),
+                priority: 0,
+            }];
+
             let server_repo = MockServerRepository::new();
             let gateway_repo = MockGatewayRepository::with_servers(gateway, servers);
-            
-            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "my-gateway").await;
-            
+
+            let result =
+                resolve_proxy_target(&server_repo, &gateway_repo, org_id, "my-gateway").await;
+
             assert!(result.is_ok());
             match result.unwrap() {
                 ProxyTarget::Gateway(g, svrs) => {
                     assert_eq!(g.slug, "my-gateway");
                     assert_eq!(svrs.len(), 1);
-                },
+                }
                 _ => panic!("Expected Gateway target"),
             }
         }
@@ -2000,9 +2359,9 @@ mod authorization_tests {
             let org_id = Uuid::new_v4();
             let server_repo = MockServerRepository::new();
             let gateway_repo = MockGatewayRepository::new();
-            
+
             let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "unknown").await;
-            
+
             assert!(result.is_err());
             let (status, _) = result.unwrap_err();
             assert_eq!(status, StatusCode::NOT_FOUND);
@@ -2020,12 +2379,13 @@ mod authorization_tests {
                 enabled: false,
                 auth_type: "none".to_string(),
             };
-            
+
             let server_repo = MockServerRepository::with_server(server);
             let gateway_repo = MockGatewayRepository::new();
-            
-            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "disabled-server").await;
-            
+
+            let result =
+                resolve_proxy_target(&server_repo, &gateway_repo, org_id, "disabled-server").await;
+
             assert!(result.is_err());
             let (status, msg) = result.unwrap_err();
             assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
@@ -2042,12 +2402,13 @@ mod authorization_tests {
                 slug: "disabled-gateway".to_string(),
                 enabled: false,
             };
-            
+
             let server_repo = MockServerRepository::new();
             let gateway_repo = MockGatewayRepository::with_gateway(gateway);
-            
-            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "disabled-gateway").await;
-            
+
+            let result =
+                resolve_proxy_target(&server_repo, &gateway_repo, org_id, "disabled-gateway").await;
+
             assert!(result.is_err());
             let (status, _) = result.unwrap_err();
             assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
@@ -2063,13 +2424,14 @@ mod authorization_tests {
                 slug: "empty-gateway".to_string(),
                 enabled: true,
             };
-            
+
             let server_repo = MockServerRepository::new();
             // Gateway exists but has no servers
             let gateway_repo = MockGatewayRepository::with_gateway(gateway);
-            
-            let result = resolve_proxy_target(&server_repo, &gateway_repo, org_id, "empty-gateway").await;
-            
+
+            let result =
+                resolve_proxy_target(&server_repo, &gateway_repo, org_id, "empty-gateway").await;
+
             assert!(result.is_err());
             let (status, msg) = result.unwrap_err();
             assert_eq!(status, StatusCode::NOT_FOUND);

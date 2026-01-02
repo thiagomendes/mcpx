@@ -10,10 +10,10 @@ use axum::{
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::AppState;
-use crate::middleware::auth::AuthUser;
-use crate::services::audit::{self, AuditQuery, AuditListResponse, AuditLogDetail};
 use crate::messages::error;
+use crate::middleware::auth::AuthUser;
+use crate::services::audit::{self, AuditListResponse, AuditLogDetail, AuditQuery};
+use crate::AppState;
 
 /// GET /api/audit
 /// List audit logs with pagination and filters
@@ -26,7 +26,12 @@ pub async fn list_audit_logs(
 
     let response = audit::list_audit_logs(&state.db.pool, org_id, query)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(Json(response))
 }
@@ -42,7 +47,12 @@ pub async fn get_audit_log(
 
     let log = audit::get_audit_log(&state.db.pool, org_id, id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     match log {
         Some(l) => Ok(Json(l)),

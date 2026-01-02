@@ -1,7 +1,7 @@
 # MCPX - Estado do Projeto
 
-**Última atualização:** 2025-12-26
-**Branch:** feature/organizations-multi-auth
+**Última atualização:** 2026-01-02
+**Branch:** feature/configuration-management
 
 ---
 
@@ -111,7 +111,7 @@
 
 - Backend: mensagens centralizadas, SQL constants
 - Frontend: ESLint configurado, constants centralizados
-- **43 testes passando** (21 backend + 22 frontend)
+- **102 testes passando** (backend Rust)
 - Clippy warnings: 0
 - ESLint warnings: 0
 
@@ -227,20 +227,45 @@ Refactor completo para arquitetura multi-tenant baseada em Organizações.
 
 ## 📋 A FAZER (FUTURO)
 
-### Gateway Authentication (PATs & Service Accounts)
-**Spec:** [Authentication Specification](./authentication_spec.md)
+### Gateway Authentication (PATs & Service Accounts) ✅
+**Status:** ✅ **COMPLETO**
 
-Implementar autenticação para consumo de servidores expostos.
+Implementação completa de autenticação para consumo de servidores expostos:
 
-- [ ] **Personal Access Tokens (PATs)**
-    - [ ] Criar tabela `personal_access_tokens`
-    - [ ] Implementar API CRUD para PATs
-    - [ ] Validar PATs no MCP Proxy
-    - [ ] UI para gerar/revogar tokens
-- [ ] **Service Accounts (M2M)**
-    - [ ] Criar tabela `service_accounts`
-    - [ ] Implementar OAuth Client Credentials flow
-    - [ ] UI para gerenciar service accounts
+#### Personal Access Tokens (PATs) ✅
+- [x] Criar tabela `personal_access_tokens`
+- [x] Implementar API CRUD para PATs
+- [x] Validar PATs no MCP Proxy
+- [x] UI para gerar/revogar tokens
+- [x] PATs self-service para members
+
+#### Service Accounts (M2M) ✅
+- [x] Criar tabela `service_accounts` com coluna `role`
+- [x] Implementar OAuth Client Credentials flow
+- [x] UI para gerenciar service accounts com roles (Admin/Member)
+
+---
+
+### Multi-Token Dashboard API ✅
+**Status:** ✅ **COMPLETO**
+
+Dashboard API agora aceita 3 tipos de token:
+
+| Token Type | Exemplo | Uso |
+|------------|---------|-----|
+| PAT | `mcpx_pat_xxx` | Users programmatic access |
+| M2M JWT | `eyJhb...` (token_type=m2m) | Service accounts |
+| Web Session | `eyJhb...` | Browser login |
+
+**RBAC testado:**
+- 102 testes unitários
+- 90 testes de integração (5 token types × 18 endpoints)
+- Permissões: Member=read, Admin/Owner=read+write
+
+**Security fixes:**
+- [x] AuthUser rejeita requests de usuários removidos da org
+- [x] Validação de email no aceite de convite
+- [x] PATs deletados ao remover membro da org
 
 ### Auto-refresh OAuth tokens
 - [ ] Implementar `try_refresh_token`

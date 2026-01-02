@@ -8,9 +8,9 @@ use sqlx::FromRow;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::messages::error;
 use crate::middleware::auth::AuthUser;
 use crate::services::crypto;
-use crate::messages::error;
 use crate::AppState;
 
 const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND org_id = $2";
@@ -57,14 +57,24 @@ pub async fn list_credentials(
         .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let credentials = sqlx::query_as::<_, Credential>(SQL_SELECT_CREDENTIALS)
         .bind(server)
         .fetch_all(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     let responses: Vec<CredentialResponse> = credentials
         .into_iter()
@@ -73,7 +83,10 @@ pub async fn list_credentials(
             server_id: c.server_id,
             credential_type: c.credential_type,
             name: c.name,
-            masked_value: mask_value(&decrypt_value(&c.encrypted_value, &state.config.encryption_key)),
+            masked_value: mask_value(&decrypt_value(
+                &c.encrypted_value,
+                &state.config.encryption_key,
+            )),
             created_at: c.created_at,
         })
         .collect();
@@ -88,7 +101,10 @@ pub async fn create_credential(
     Json(req): Json<CreateCredentialRequest>,
 ) -> Result<Json<CredentialResponse>, (StatusCode, String)> {
     if req.credential_type != "api_key" && req.credential_type != "bearer" {
-        return Err((StatusCode::BAD_REQUEST, error::INVALID_CREDENTIAL_TYPE.to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            error::INVALID_CREDENTIAL_TYPE.to_string(),
+        ));
     }
 
     let server_id = sqlx::query_scalar::<_, Uuid>(SQL_SELECT_SERVER_ID)
@@ -96,12 +112,17 @@ pub async fn create_credential(
         .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let key = crypto::derive_key(&state.config.encryption_key);
-    let encrypted = crypto::encrypt(&req.value, &key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let encrypted =
+        crypto::encrypt(&req.value, &key).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let credential = sqlx::query_as::<_, Credential>(SQL_INSERT_CREDENTIAL)
         .bind(server_id)
@@ -110,7 +131,12 @@ pub async fn create_credential(
         .bind(&req.name)
         .fetch_one(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     let auth_type = match req.credential_type.as_str() {
         "api_key" => "api_key",
@@ -123,7 +149,12 @@ pub async fn create_credential(
         .bind(server_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(Json(CredentialResponse {
         id: credential.id,
@@ -145,7 +176,12 @@ pub async fn delete_credential(
         .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let result = sqlx::query(SQL_DELETE_CREDENTIAL)
@@ -153,17 +189,30 @@ pub async fn delete_credential(
         .bind(server_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, error::CREDENTIAL_NOT_FOUND.to_string()));
+        return Err((
+            StatusCode::NOT_FOUND,
+            error::CREDENTIAL_NOT_FOUND.to_string(),
+        ));
     }
 
     let count: i64 = sqlx::query_scalar(SQL_COUNT_CREDENTIALS)
         .bind(server_id)
         .fetch_one(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     if count == 0 {
         sqlx::query(SQL_UPDATE_AUTH_TYPE)
@@ -171,7 +220,12 @@ pub async fn delete_credential(
             .bind(server_id)
             .execute(&state.db.pool)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("{}: {}", error::DATABASE_ERROR, e),
+                )
+            })?;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -181,7 +235,7 @@ fn mask_value(value: &str) -> String {
     if value.len() <= 8 {
         "*".repeat(value.len())
     } else {
-        format!("{}...{}", &value[..4], &value[value.len()-4..])
+        format!("{}...{}", &value[..4], &value[value.len() - 4..])
     }
 }
 

@@ -3,14 +3,14 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
-use chrono::{Duration, Utc};
 
+use crate::messages::error;
 use crate::middleware::auth::AuthUser;
 use crate::services::crypto;
-use crate::messages::error;
 use crate::AppState;
 
 const SQL_SELECT_SERVER_ID: &str = "SELECT id FROM servers WHERE name = $1 AND org_id = $2";
@@ -30,10 +30,11 @@ const SQL_UPSERT_OAUTH_TOKENS: &str = r#"
         updated_at = NOW()
 "#;
 
-const SQL_SELECT_OAUTH_STATUS: &str = 
+const SQL_SELECT_OAUTH_STATUS: &str =
     "SELECT COALESCE(access_token_encrypted, ''), expires_at FROM oauth_tokens WHERE server_id = $1 AND org_id = $2";
 
-const SQL_DELETE_OAUTH_TOKENS: &str = "DELETE FROM oauth_tokens WHERE server_id = $1 AND org_id = $2";
+const SQL_DELETE_OAUTH_TOKENS: &str =
+    "DELETE FROM oauth_tokens WHERE server_id = $1 AND org_id = $2";
 
 #[derive(Debug, Deserialize)]
 pub struct StoreTokensRequest {
@@ -42,7 +43,7 @@ pub struct StoreTokensRequest {
     pub token_type: Option<String>,
     pub expires_in: Option<i64>,
     pub scope: Option<String>,
-    pub client_id: Option<String>,  // Dynamic client_id from OAuth registration
+    pub client_id: Option<String>, // Dynamic client_id from OAuth registration
 }
 
 #[derive(Debug, Serialize)]
@@ -62,23 +63,38 @@ pub async fn store_oauth_tokens(
         .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
-    let server_id = server_id
-        .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
+    let server_id =
+        server_id.ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let key = crypto::derive_key(&state.config.encryption_key);
 
-    let access_encrypted = crypto::encrypt(&tokens.access_token, &key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::ENCRYPTION_ERROR, e)))?;
+    let access_encrypted = crypto::encrypt(&tokens.access_token, &key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{}: {}", error::ENCRYPTION_ERROR, e),
+        )
+    })?;
 
     let refresh_encrypted = match &tokens.refresh_token {
-        Some(rt) => Some(crypto::encrypt(rt, &key)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::ENCRYPTION_ERROR, e)))?),
+        Some(rt) => Some(crypto::encrypt(rt, &key).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::ENCRYPTION_ERROR, e),
+            )
+        })?),
         None => None,
     };
 
-    let expires_at = tokens.expires_in.map(|secs| Utc::now() + Duration::seconds(secs));
+    let expires_at = tokens
+        .expires_in
+        .map(|secs| Utc::now() + Duration::seconds(secs));
 
     sqlx::query(SQL_UPSERT_OAUTH_TOKENS)
         .bind(server_id)
@@ -88,10 +104,15 @@ pub async fn store_oauth_tokens(
         .bind(tokens.token_type.unwrap_or_else(|| "Bearer".to_string()))
         .bind(expires_at)
         .bind(&tokens.scope)
-        .bind(&tokens.client_id)  // $8: dynamic_client_id
+        .bind(&tokens.client_id) // $8: dynamic_client_id
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(StatusCode::CREATED)
 }
@@ -106,17 +127,28 @@ pub async fn oauth_status(
         .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
-    let server_id = server_id
-        .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
+    let server_id =
+        server_id.ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
-    let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(SQL_SELECT_OAUTH_STATUS)
-        .bind(server_id)
-        .bind(auth_user.org_id)
-        .fetch_optional(&state.db.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+    let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> =
+        sqlx::query_as(SQL_SELECT_OAUTH_STATUS)
+            .bind(server_id)
+            .bind(auth_user.org_id)
+            .fetch_optional(&state.db.pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("{}: {}", error::DATABASE_ERROR, e),
+                )
+            })?;
 
     match row {
         Some((token, expires_at)) if !token.is_empty() => Ok(Json(OAuthStatusResponse {
@@ -140,17 +172,27 @@ pub async fn revoke_oauth(
         .bind(auth_user.org_id)
         .fetch_optional(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
-    let server_id = server_id
-        .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
+    let server_id =
+        server_id.ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     sqlx::query(SQL_DELETE_OAUTH_TOKENS)
         .bind(server_id)
         .bind(auth_user.org_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,8 +1,8 @@
 #![allow(dead_code)]
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Server {
@@ -90,7 +90,9 @@ impl ServerResponse {
             transport: server.transport,
             enabled: server.enabled,
             auth_type: server.auth_type.unwrap_or_else(|| "none".to_string()),
-            status: server.status.unwrap_or_else(|| "pending_health".to_string()),
+            status: server
+                .status
+                .unwrap_or_else(|| "pending_health".to_string()),
             last_health_check: server.last_health_check,
             health_error: server.health_error,
             proxy_url: format!("{}/mcp/{}/{}", base_url, org_slug, server.name),

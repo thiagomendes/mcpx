@@ -1,4 +1,4 @@
-use sqlx::{postgres::PgPoolOptions, PgPool, migrate::Migrator};
+use sqlx::{migrate::Migrator, postgres::PgPoolOptions, PgPool};
 use std::path::Path;
 
 #[derive(Clone)]

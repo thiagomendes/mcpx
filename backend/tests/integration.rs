@@ -8,7 +8,7 @@
 mod unit_tests {
     // Tests are located within each module in src/routes/*.rs
     // This placeholder ensures the tests directory is recognized
-    
+
     #[test]
     fn test_infrastructure_works() {
         assert!(true);

@@ -8,15 +8,13 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::AppState;
-use crate::routes::auth::extract_org_context;
 use crate::messages::error;
 use crate::middleware::auth::AuthUser;
-use crate::middleware::permissions::Permission;
+use crate::AppState;
 
 // ============================================
 // TYPES
@@ -37,7 +35,7 @@ pub struct PatResponse {
 pub struct PatCreatedResponse {
     pub id: Uuid,
     pub name: String,
-    pub token: String,  // Full token - shown only once!
+    pub token: String, // Full token - shown only once!
     pub token_prefix: String,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -141,7 +139,12 @@ pub async fn list_tokens(
         .bind(org_id)
         .fetch_all(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     let response: Vec<PatResponse> = rows
         .into_iter()
@@ -167,29 +170,48 @@ pub async fn create_token(
 ) -> Result<Json<PatCreatedResponse>, (StatusCode, String)> {
     // PATs are self-service - any authenticated user can create their own tokens
     // No permission check needed - tokens are automatically tied to auth.user_id
-    
+
     let user_id = auth.user_id;
     let org_id = auth.org_id;
 
     // Check max_pats_per_user limit
     let max_pats = crate::routes::settings::get_org_setting_value(
-        &state.db, org_id, "max_pats_per_user", "10"
-    ).await.parse::<i64>().unwrap_or(10);
-    
-    let current_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM personal_access_tokens WHERE user_id = $1 AND org_id = $2")
-        .bind(user_id)
-        .bind(org_id)
-        .fetch_one(&state.db.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
-    
+        &state.db,
+        org_id,
+        "max_pats_per_user",
+        "10",
+    )
+    .await
+    .parse::<i64>()
+    .unwrap_or(10);
+
+    let current_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM personal_access_tokens WHERE user_id = $1 AND org_id = $2",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_one(&state.db.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{}: {}", error::DATABASE_ERROR, e),
+        )
+    })?;
+
     if current_count.0 >= max_pats {
-        return Err((StatusCode::FORBIDDEN, format!("Token limit reached. Maximum {} tokens per user.", max_pats)));
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!("Token limit reached. Maximum {} tokens per user.", max_pats),
+        ));
     }
 
     // Validate name
     if payload.name.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Token name is required".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Token name is required".to_string(),
+        ));
     }
 
     // Generate token
@@ -198,9 +220,9 @@ pub async fn create_token(
     let token_prefix = get_token_prefix(&token);
 
     // Calculate expiration
-    let expires_at = payload.expires_in_days.map(|days| {
-        chrono::Utc::now() + chrono::Duration::days(days)
-    });
+    let expires_at = payload
+        .expires_in_days
+        .map(|days| chrono::Utc::now() + chrono::Duration::days(days));
 
     // Insert
     let row = sqlx::query_as::<_, PatRow>(SQL_CREATE_PAT)
@@ -213,7 +235,12 @@ pub async fn create_token(
         .bind(expires_at)
         .fetch_one(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     // Log audit event
     tracing::info!(
@@ -225,7 +252,7 @@ pub async fn create_token(
     Ok(Json(PatCreatedResponse {
         id: row.id,
         name: row.name,
-        token,  // Full token - shown only once!
+        token, // Full token - shown only once!
         token_prefix: row.token_prefix,
         expires_at: row.expires_at,
         created_at: row.created_at,
@@ -240,7 +267,7 @@ pub async fn delete_token(
 ) -> Result<StatusCode, (StatusCode, String)> {
     // PATs are self-service - any user can delete their own tokens
     // The SQL query filters by user_id, so users can only delete their own
-    
+
     let user_id = auth.user_id;
     let org_id = auth.org_id;
 
@@ -250,7 +277,12 @@ pub async fn delete_token(
         .bind(org_id)
         .execute(&state.db.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     if result.rows_affected() == 0 {
         return Err((StatusCode::NOT_FOUND, "Token not found".to_string()));
@@ -386,7 +418,7 @@ mod tests {
 // REPOSITORY-BASED VALIDATION (for testing)
 // ============================================
 
-use crate::services::repositories::{PatRepository, PatData};
+use crate::services::repositories::{PatData, PatRepository};
 
 /// Validate a PAT token using the repository trait (testable)
 #[allow(dead_code)]
@@ -425,7 +457,9 @@ mod validation_tests {
     #[tokio::test]
     async fn validate_rejects_token_without_prefix() {
         let repo = MockPatRepository::new();
-        let result = validate_pat_with_repo(&repo, "invalid_token").await.unwrap();
+        let result = validate_pat_with_repo(&repo, "invalid_token")
+            .await
+            .unwrap();
         assert!(result.is_none());
     }
 
@@ -448,10 +482,10 @@ mod validation_tests {
             expires_at: None,
         };
         let repo = MockPatRepository::with_pat(pat.clone());
-        
+
         let token = format!("{}test123", TOKEN_PREFIX);
         let result = validate_pat_with_repo(&repo, &token).await.unwrap();
-        
+
         assert!(result.is_some());
         assert_eq!(result.unwrap().name, "Test PAT");
     }
@@ -467,10 +501,10 @@ mod validation_tests {
             expires_at: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
         };
         let repo = MockPatRepository::with_pat(pat);
-        
+
         let token = format!("{}test123", TOKEN_PREFIX);
         let result = validate_pat_with_repo(&repo, &token).await.unwrap();
-        
+
         assert!(result.is_none());
     }
 
@@ -485,10 +519,10 @@ mod validation_tests {
             expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
         };
         let repo = MockPatRepository::with_pat(pat);
-        
+
         let token = format!("{}test123", TOKEN_PREFIX);
         let result = validate_pat_with_repo(&repo, &token).await.unwrap();
-        
+
         assert!(result.is_some());
         assert_eq!(result.unwrap().name, "Valid PAT");
     }

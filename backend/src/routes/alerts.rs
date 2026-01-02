@@ -10,13 +10,13 @@ use axum::{
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::AppState;
+use crate::messages::error;
 use crate::middleware::auth::AuthUser;
 use crate::services::alerts::{
-    self, AlertRule, ActiveAlert, CreateAlertRule, UpdateAlertRule,
-    AlertHistoryQuery, AlertHistoryResponse,
+    self, ActiveAlert, AlertHistoryQuery, AlertHistoryResponse, AlertRule, CreateAlertRule,
+    UpdateAlertRule,
 };
-use crate::messages::error;
+use crate::AppState;
 
 /// GET /api/alerts - List org's alert rules
 pub async fn list_rules(
@@ -27,7 +27,12 @@ pub async fn list_rules(
 
     let rules = alerts::list_rules(&state.db.pool, org_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(Json(rules))
 }
@@ -44,7 +49,9 @@ pub async fn create_rule(
     if !["threshold", "spike", "no_data"].contains(&input.alert_type.as_str()) {
         return Err((StatusCode::BAD_REQUEST, "Invalid alert_type".to_string()));
     }
-    if !["error_rate", "avg_latency", "request_count", "p95_latency"].contains(&input.metric.as_str()) {
+    if !["error_rate", "avg_latency", "request_count", "p95_latency"]
+        .contains(&input.metric.as_str())
+    {
         return Err((StatusCode::BAD_REQUEST, "Invalid metric".to_string()));
     }
     if !["all", "server", "gateway"].contains(&input.scope_type.as_str()) {
@@ -56,7 +63,12 @@ pub async fn create_rule(
 
     let rule = alerts::create_rule(&state.db.pool, org_id, input)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok((StatusCode::CREATED, Json(rule)))
 }
@@ -71,7 +83,12 @@ pub async fn get_rule(
 
     let rule = alerts::get_rule(&state.db.pool, org_id, id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     match rule {
         Some(r) => Ok(Json(r)),
@@ -95,14 +112,20 @@ pub async fn update_rule(
         }
     }
     if let Some(ref metric) = input.metric {
-        if !["error_rate", "avg_latency", "request_count", "p95_latency"].contains(&metric.as_str()) {
+        if !["error_rate", "avg_latency", "request_count", "p95_latency"].contains(&metric.as_str())
+        {
             return Err((StatusCode::BAD_REQUEST, "Invalid metric".to_string()));
         }
     }
 
     let rule = alerts::update_rule(&state.db.pool, org_id, id, input)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     match rule {
         Some(r) => Ok(Json(r)),
@@ -120,7 +143,12 @@ pub async fn delete_rule(
 
     let deleted = alerts::delete_rule(&state.db.pool, org_id, id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     if deleted {
         Ok(StatusCode::NO_CONTENT)
@@ -138,7 +166,12 @@ pub async fn get_active_alerts(
 
     let alerts = alerts::get_active_alerts(&state.db.pool, org_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(Json(alerts))
 }
@@ -153,7 +186,12 @@ pub async fn get_history(
 
     let history = alerts::list_history(&state.db.pool, org_id, query)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(Json(history))
 }
@@ -168,11 +206,19 @@ pub async fn acknowledge_alert(
 
     let acknowledged = alerts::acknowledge_alert(&state.db.pool, org_id, id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     if acknowledged {
         Ok(StatusCode::OK)
     } else {
-        Err((StatusCode::NOT_FOUND, "Alert not found or already acknowledged".to_string()))
+        Err((
+            StatusCode::NOT_FOUND,
+            "Alert not found or already acknowledged".to_string(),
+        ))
     }
 }

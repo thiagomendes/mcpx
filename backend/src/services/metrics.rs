@@ -3,10 +3,10 @@
 //! Records and queries request metrics using TimescaleDB hypertables
 //! and continuous aggregates for efficient time-series analytics.
 
-use sqlx::PgPool;
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use sqlx::PgPool;
+use uuid::Uuid;
 
 // ============================================
 // TYPE ALIASES FOR COMPLEX QUERIES
@@ -14,8 +14,29 @@ use serde::Serialize;
 
 type HourlyStatRow = (DateTime<Utc>, i64, i64, Option<i32>);
 type TargetMetricsRow = (String, Uuid, String, i64, i64, Option<i32>);
-type QueryMetricsRow = (Option<DateTime<Utc>>, Option<String>, Option<String>, Option<String>, i64, i64, i64, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>);
-type LatencyRow = (Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<f64>, i64, Option<i64>);
+type QueryMetricsRow = (
+    Option<DateTime<Utc>>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    i64,
+    i64,
+    i64,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+);
+type LatencyRow = (
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    i64,
+    Option<i64>,
+);
 type ThroughputRow = (Option<f64>, Option<f64>, Option<f64>);
 
 /// Struct to group request metric arguments
@@ -31,10 +52,7 @@ pub struct RequestMetric<'a> {
 }
 
 /// Record a request metric
-pub async fn record_request(
-    pool: &PgPool,
-    metric: RequestMetric<'_>,
-) -> Result<(), sqlx::Error> {
+pub async fn record_request(pool: &PgPool, metric: RequestMetric<'_>) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO request_metrics (time, org_id, target_type, target_id, target_name, method, tool_name, latency_ms, success)
@@ -113,12 +131,14 @@ pub async fn get_hourly_stats(
 
     Ok(rows
         .into_iter()
-        .map(|(bucket, total, success_count, avg_latency_ms)| HourlyStat {
-            bucket,
-            total,
-            success_count,
-            avg_latency_ms,
-        })
+        .map(
+            |(bucket, total, success_count, avg_latency_ms)| HourlyStat {
+                bucket,
+                total,
+                success_count,
+                avg_latency_ms,
+            },
+        )
         .collect())
 }
 
@@ -157,16 +177,18 @@ pub async fn get_metrics_by_target(
 
     Ok(rows
         .into_iter()
-        .map(|(target_type, target_id, target_name, total, success_count, avg_latency_ms)| {
-            TargetMetrics {
-                target_type,
-                target_id,
-                target_name,
-                total,
-                success_count,
-                avg_latency_ms,
-            }
-        })
+        .map(
+            |(target_type, target_id, target_name, total, success_count, avg_latency_ms)| {
+                TargetMetrics {
+                    target_type,
+                    target_id,
+                    target_name,
+                    total,
+                    success_count,
+                    avg_latency_ms,
+                }
+            },
+        )
         .collect())
 }
 
@@ -179,10 +201,10 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FilterField {
-    TargetType,    // "server" or "gateway"
-    TargetName,    // Server/Gateway name
-    Tool,          // MCP tool name (stored in method column)
-    Success,       // true/false
+    TargetType, // "server" or "gateway"
+    TargetName, // Server/Gateway name
+    Tool,       // MCP tool name (stored in method column)
+    Success,    // true/false
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -206,17 +228,17 @@ pub struct QueryFilter {
 pub enum GroupByField {
     TargetType,
     TargetName,
-    Tool,       // Groups by method (e.g., tools/call, prompts/list)
-    ToolName,   // Groups by actual tool_name (only for tools/call)
+    Tool,     // Groups by method (e.g., tools/call, prompts/list)
+    ToolName, // Groups by actual tool_name (only for tools/call)
     TimeBucket,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct MetricsQuery {
-    pub time_range_hours: Option<f64>,   // e.g., 24.0 for 24h, 0.25 for 15m
+    pub time_range_hours: Option<f64>, // e.g., 24.0 for 24h, 0.25 for 15m
     pub filters: Option<Vec<QueryFilter>>,
     pub group_by: Option<Vec<GroupByField>>,
-    pub bucket_size: Option<String>,      // "5m", "15m", "1h", "1d"
+    pub bucket_size: Option<String>, // "5m", "15m", "1h", "1d"
 }
 
 #[derive(Debug, Serialize)]
@@ -255,39 +277,77 @@ pub async fn query_metrics(
     query: MetricsQuery,
 ) -> Result<QueryResponse, sqlx::Error> {
     let hours = query.time_range_hours.unwrap_or(24.0);
-    let bucket_size = query.bucket_size.clone().unwrap_or_else(|| "1h".to_string());
-    
+    let bucket_size = query
+        .bucket_size
+        .clone()
+        .unwrap_or_else(|| "1h".to_string());
+
     // Convert bucket size format: "5m" -> "5 minutes", "1h" -> "1 hour", "1d" -> "1 day"
     let bucket_interval = parse_bucket_size(&bucket_size);
-    
+
     // Determine what to group by
-    let group_by = query.group_by.clone().unwrap_or_else(|| vec![GroupByField::TimeBucket]);
-    
-    let has_bucket = group_by.iter().any(|g| matches!(g, GroupByField::TimeBucket));
-    let has_target_type = group_by.iter().any(|g| matches!(g, GroupByField::TargetType));
-    let has_target_name = group_by.iter().any(|g| matches!(g, GroupByField::TargetName));
+    let group_by = query
+        .group_by
+        .clone()
+        .unwrap_or_else(|| vec![GroupByField::TimeBucket]);
+
+    let has_bucket = group_by
+        .iter()
+        .any(|g| matches!(g, GroupByField::TimeBucket));
+    let has_target_type = group_by
+        .iter()
+        .any(|g| matches!(g, GroupByField::TargetType));
+    let has_target_name = group_by
+        .iter()
+        .any(|g| matches!(g, GroupByField::TargetName));
     let has_tool = group_by.iter().any(|g| matches!(g, GroupByField::Tool));
     let has_tool_name = group_by.iter().any(|g| matches!(g, GroupByField::ToolName));
-    
+
     // Build SELECT clause - ALWAYS 8 columns in fixed order
-    let bucket_col = if has_bucket { format!("time_bucket('{}', time)", bucket_interval) } else { "NULL::TIMESTAMPTZ".to_string() };
-    let target_type_col = if has_target_type { "target_type".to_string() } else { "NULL::TEXT".to_string() };
-    let target_name_col = if has_target_name { "target_name".to_string() } else { "NULL::TEXT".to_string() };
-    let tool_col = if has_tool { "method".to_string() } else if has_tool_name { "tool_name".to_string() } else { "NULL::TEXT".to_string() };
-    
+    let bucket_col = if has_bucket {
+        format!("time_bucket('{}', time)", bucket_interval)
+    } else {
+        "NULL::TIMESTAMPTZ".to_string()
+    };
+    let target_type_col = if has_target_type {
+        "target_type".to_string()
+    } else {
+        "NULL::TEXT".to_string()
+    };
+    let target_name_col = if has_target_name {
+        "target_name".to_string()
+    } else {
+        "NULL::TEXT".to_string()
+    };
+    let tool_col = if has_tool {
+        "method".to_string()
+    } else if has_tool_name {
+        "tool_name".to_string()
+    } else {
+        "NULL::TEXT".to_string()
+    };
+
     // Build GROUP BY clause
     let mut group_parts = vec![];
-    if has_bucket { group_parts.push("1".to_string()); }  // reference by position
-    if has_target_type { group_parts.push("2".to_string()); }
-    if has_target_name { group_parts.push("3".to_string()); }
-    if has_tool || has_tool_name { group_parts.push("4".to_string()); }
-    
+    if has_bucket {
+        group_parts.push("1".to_string());
+    } // reference by position
+    if has_target_type {
+        group_parts.push("2".to_string());
+    }
+    if has_target_name {
+        group_parts.push("3".to_string());
+    }
+    if has_tool || has_tool_name {
+        group_parts.push("4".to_string());
+    }
+
     // Build WHERE clause
     let mut where_parts = vec![
         "org_id = $1".to_string(),
         format!("time >= NOW() - INTERVAL '{} hours'", hours),
     ];
-    
+
     if let Some(filters) = &query.filters {
         for filter in filters {
             let col = match filter.field {
@@ -296,11 +356,15 @@ pub async fn query_metrics(
                 FilterField::Tool => "method",
                 FilterField::Success => "success",
             };
-            
+
             match (&filter.op, &filter.value, &filter.values) {
                 (FilterOp::Eq, Some(v), _) => {
                     if col == "success" {
-                        where_parts.push(format!("{} = {}", col, v.parse::<bool>().unwrap_or(true)));
+                        where_parts.push(format!(
+                            "{} = {}",
+                            col,
+                            v.parse::<bool>().unwrap_or(true)
+                        ));
                     } else {
                         where_parts.push(format!("{} = '{}'", col, v.replace('\'', "''")));
                     }
@@ -309,14 +373,17 @@ pub async fn query_metrics(
                     where_parts.push(format!("{} != '{}'", col, v.replace('\'', "''")));
                 }
                 (FilterOp::In, _, Some(vals)) => {
-                    let escaped: Vec<String> = vals.iter().map(|v| format!("'{}'", v.replace('\'', "''"))).collect();
+                    let escaped: Vec<String> = vals
+                        .iter()
+                        .map(|v| format!("'{}'", v.replace('\'', "''")))
+                        .collect();
                     where_parts.push(format!("{} IN ({})", col, escaped.join(", ")));
                 }
                 _ => {}
             }
         }
     }
-    
+
     let sql = format!(
         "SELECT {}, {}, {}, {}, \
          COUNT(*)::BIGINT, \
@@ -328,44 +395,57 @@ pub async fn query_metrics(
          COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms), 0)::INT, \
          MAX(latency_ms)::INT \
          FROM request_metrics WHERE {} {} ORDER BY {}",
-        bucket_col, target_type_col, target_name_col, tool_col,
+        bucket_col,
+        target_type_col,
+        target_name_col,
+        tool_col,
         where_parts.join(" AND "),
-        if group_parts.is_empty() { "".to_string() } else { format!("GROUP BY {}", group_parts.join(", ")) },
+        if group_parts.is_empty() {
+            "".to_string()
+        } else {
+            format!("GROUP BY {}", group_parts.join(", "))
+        },
         if has_bucket { "1 ASC" } else { "5 DESC" }
     );
-    
+
     tracing::info!("Executing metrics query: {}", sql);
-    
+
     // Execute query - 12 columns (4 grouping + 8 aggregates)
-    let rows: Vec<QueryMetricsRow> = 
-        sqlx::query_as(&sql)
-            .bind(org_id)
-            .fetch_all(pool)
-            .await
-            .unwrap_or_default();
-    
+    let rows: Vec<QueryMetricsRow> = sqlx::query_as(&sql)
+        .bind(org_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
     let total_count: i64 = rows.iter().map(|r| r.4).sum();
-    
-    let data: Vec<QueryResult> = rows.into_iter().map(|row| {
-        let count = row.4;
-        let success_count = row.5;
-        QueryResult {
-            bucket: row.0,
-            target_type: row.1,
-            target_name: row.2,
-            tool: row.3,
-            count,
-            success_count,
-            error_count: row.6,
-            avg_latency_ms: row.7,
-            p50_latency_ms: row.8,
-            p95_latency_ms: row.9,
-            p99_latency_ms: row.10,
-            max_latency_ms: row.11,
-            success_rate: if count > 0 { Some((success_count as f64 / count as f64) * 100.0) } else { None },
-        }
-    }).collect();
-    
+
+    let data: Vec<QueryResult> = rows
+        .into_iter()
+        .map(|row| {
+            let count = row.4;
+            let success_count = row.5;
+            QueryResult {
+                bucket: row.0,
+                target_type: row.1,
+                target_name: row.2,
+                tool: row.3,
+                count,
+                success_count,
+                error_count: row.6,
+                avg_latency_ms: row.7,
+                p50_latency_ms: row.8,
+                p95_latency_ms: row.9,
+                p99_latency_ms: row.10,
+                max_latency_ms: row.11,
+                success_rate: if count > 0 {
+                    Some((success_count as f64 / count as f64) * 100.0)
+                } else {
+                    None
+                },
+            }
+        })
+        .collect();
+
     Ok(QueryResponse {
         data,
         meta: QueryMeta {
@@ -400,12 +480,12 @@ pub struct SummaryStats {
     pub latency_p95: Option<f64>,
     pub latency_p99: Option<f64>,
     pub latency_max: Option<f64>,
-    
+
     // Throughput stats (req/min)
     pub throughput_avg: Option<f64>,
     pub throughput_min: Option<f64>,
     pub throughput_max: Option<f64>,
-    
+
     // Counts
     pub total_requests: i64,
     pub error_count: i64,
@@ -420,13 +500,15 @@ pub async fn get_summary_stats(
     target_name: Option<&str>,
 ) -> Result<SummaryStats, sqlx::Error> {
     tracing::info!("Querying summary stats for org_id: {}", org_id);
-    
+
     // Build WHERE clause
     let target_filter = match target_name {
-        Some(name) if !name.is_empty() => format!("AND target_name = '{}'", name.replace('\'', "''")),
+        Some(name) if !name.is_empty() => {
+            format!("AND target_name = '{}'", name.replace('\'', "''"))
+        }
         _ => String::new(),
     };
-    
+
     // Query for latency percentiles
     // COALESCE(..., 0) ensures we don't get NULLs for counts, butavgs/percentiles can be null
     let latency_sql = format!(
@@ -446,14 +528,13 @@ pub async fn get_summary_stats(
         "#,
         target_filter
     );
-    
-    let latency_row: LatencyRow = 
-        sqlx::query_as(&latency_sql)
-            .bind(org_id)
-            .bind(hours)
-            .fetch_one(pool)
-            .await?;
-    
+
+    let latency_row: LatencyRow = sqlx::query_as(&latency_sql)
+        .bind(org_id)
+        .bind(hours)
+        .fetch_one(pool)
+        .await?;
+
     // Query for throughput (requests per minute using 1-minute buckets)
     let throughput_sql = format!(
         r#"
@@ -472,14 +553,13 @@ pub async fn get_summary_stats(
         "#,
         target_filter
     );
-    
-    let throughput_row: ThroughputRow = 
-        sqlx::query_as(&throughput_sql)
-            .bind(org_id)
-            .bind(hours)
-            .fetch_one(pool)
-            .await?;
-    
+
+    let throughput_row: ThroughputRow = sqlx::query_as(&throughput_sql)
+        .bind(org_id)
+        .bind(hours)
+        .fetch_one(pool)
+        .await?;
+
     let total_requests = latency_row.5;
     let error_count = latency_row.6.unwrap_or(0);
     let error_rate = if total_requests > 0 {
@@ -487,7 +567,7 @@ pub async fn get_summary_stats(
     } else {
         0.0
     };
-    
+
     Ok(SummaryStats {
         latency_avg: latency_row.0,
         latency_p50: latency_row.1,

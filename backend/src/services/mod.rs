@@ -1,10 +1,10 @@
-pub mod db;
+pub mod alerts;
+pub mod audit;
 pub mod crypto;
+pub mod db;
 pub mod health_check;
-pub mod oauth_provider;
 pub mod mcp_client;
 pub mod metrics;
-pub mod audit;
-pub mod alerts;
+pub mod oauth_provider;
 pub mod org;
 pub mod repositories;

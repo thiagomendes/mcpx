@@ -1,7 +1,5 @@
 #![allow(dead_code)]
-use oauth2::{
-    basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl,
-};
+use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -16,7 +14,9 @@ impl OAuthProvider {
     pub fn auth_url(&self) -> &'static str {
         match self {
             OAuthProvider::Google => "https://accounts.google.com/o/oauth2/v2/auth",
-            OAuthProvider::Microsoft => "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+            OAuthProvider::Microsoft => {
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+            }
             OAuthProvider::GitHub => "https://github.com/login/oauth/authorize",
         }
     }
@@ -24,7 +24,9 @@ impl OAuthProvider {
     pub fn token_url(&self) -> &'static str {
         match self {
             OAuthProvider::Google => "https://oauth2.googleapis.com/token",
-            OAuthProvider::Microsoft => "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+            OAuthProvider::Microsoft => {
+                "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+            }
             OAuthProvider::GitHub => "https://github.com/login/oauth/access_token",
         }
     }
@@ -110,7 +112,8 @@ impl ProviderUserInfo {
             }),
             OAuthProvider::Microsoft => Ok(Self {
                 id: json["id"].as_str().unwrap_or_default().to_string(),
-                email: json["mail"].as_str()
+                email: json["mail"]
+                    .as_str()
                     .or(json["userPrincipalName"].as_str())
                     .unwrap_or_default()
                     .to_string(),

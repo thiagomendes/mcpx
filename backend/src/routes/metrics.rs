@@ -1,5 +1,5 @@
 //! Metrics API Routes
-//! 
+//!
 //! Exposes TimescaleDB metrics via REST API
 
 use axum::{
@@ -10,10 +10,12 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::AppState;
-use crate::middleware::auth::AuthUser;
-use crate::services::metrics::{self, TodayMetrics, HourlyStat, TargetMetrics, MetricsQuery, QueryResponse};
 use crate::messages::error;
+use crate::middleware::auth::AuthUser;
+use crate::services::metrics::{
+    self, HourlyStat, MetricsQuery, QueryResponse, TargetMetrics, TodayMetrics,
+};
+use crate::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct HourlyParams {
@@ -35,7 +37,12 @@ pub async fn get_today(
 
     let metrics = metrics::get_today_count(&state.db.pool, org_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(Json(metrics))
 }
@@ -51,7 +58,12 @@ pub async fn get_hourly(
 
     let stats = metrics::get_hourly_stats(&state.db.pool, org_id, params.hours)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(Json(stats))
 }
@@ -67,7 +79,12 @@ pub async fn get_by_target(
 
     let metrics = metrics::get_metrics_by_target(&state.db.pool, org_id, params.hours)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(Json(metrics))
 }
@@ -83,7 +100,12 @@ pub async fn query(
 
     let response = metrics::query_metrics(&state.db.pool, org_id, query)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
 
     Ok(Json(response))
 }
@@ -105,13 +127,18 @@ pub async fn get_summary(
     let org_id = auth.org_id;
 
     let stats = metrics::get_summary_stats(
-        &state.db.pool, 
-        org_id, 
+        &state.db.pool,
+        org_id,
         params.hours,
         params.target_name.as_deref(),
     )
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{}: {}", error::DATABASE_ERROR, e),
+        )
+    })?;
 
     Ok(Json(stats))
 }
