@@ -176,6 +176,7 @@ pub async fn join_org(
     Path(token): Path<String>,
 ) -> Result<Json<OrgMemberResponse>, (StatusCode, String)> {
     let user_id = auth.user_id;
+    let user_email = auth.email.to_lowercase();
 
     // 1. Get invite
     let invite = crate::services::org::OrgService::get_invite_by_token(&state.db.pool, &token)
@@ -183,7 +184,20 @@ pub async fn join_org(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
         .ok_or((StatusCode::NOT_FOUND, "Invalid or expired invite link".to_string()))?;
 
-    // 2. Add user to org
+    // 2. SECURITY: Validate that the logged-in user's email matches the invite email
+    if invite.email.to_lowercase() != user_email {
+        tracing::warn!(
+            "Invite email mismatch: invite.email={} user.email={}",
+            invite.email,
+            user_email
+        );
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!("This invite was sent to {}. Please log in with that email address.", invite.email)
+        ));
+    }
+
+    // 3. Add user to org
     let member = crate::services::org::OrgService::add_member(
         &state.db.pool,
         invite.org_id,
@@ -353,6 +367,23 @@ pub async fn remove_member(
 
     if !removed {
         return Err((StatusCode::NOT_FOUND, "Member not found in organization".to_string()));
+    }
+
+    // 4. SECURITY: Delete all PATs the removed user had for this org
+    let deleted_pats = sqlx::query("DELETE FROM personal_access_tokens WHERE user_id = $1 AND org_id = $2")
+        .bind(target_user_id)
+        .bind(org_id)
+        .execute(&state.db.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", error::DATABASE_ERROR, e)))?;
+    
+    if deleted_pats.rows_affected() > 0 {
+        tracing::info!(
+            "Deleted {} PATs for user {} removed from org {}",
+            deleted_pats.rows_affected(),
+            target_user_id,
+            org_id
+        );
     }
 
     Ok(StatusCode::NO_CONTENT)

@@ -85,16 +85,17 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
                     .unwrap_or_else(|| String::new());
                     
-                    // Get role from org_members
-                    let role: String = sqlx::query_scalar(
+                    // Get role from org_members - MUST be a member
+                    let role: Option<String> = sqlx::query_scalar(
                         "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2"
                     )
                     .bind(pat.org_id)
                     .bind(pat.user_id)
                     .fetch_optional(&state.db.pool)
                     .await
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
-                    .unwrap_or_else(|| "member".to_string());
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+                    
+                    let role = role.ok_or((StatusCode::UNAUTHORIZED, "User is not a member of this organization".to_string()))?;
                     
                     Ok(AuthUser {
                         user_id: pat.user_id,
@@ -152,16 +153,17 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
             let user_id = uuid::Uuid::parse_str(&claims.sub).unwrap_or_default();
             let org_id = uuid::Uuid::parse_str(&claims.org_id).unwrap_or_default();
             
-            // Fetch role from org_members
-            let role: String = sqlx::query_scalar(
+            // Fetch role from org_members - MUST be a member
+            let role: Option<String> = sqlx::query_scalar(
                 "SELECT role FROM org_members WHERE org_id = $1 AND user_id = $2"
             )
             .bind(org_id)
             .bind(user_id)
             .fetch_optional(&state.db.pool)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
-            .unwrap_or_else(|| "member".to_string());
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+            
+            let role = role.ok_or((StatusCode::UNAUTHORIZED, "User is not a member of this organization".to_string()))?;
             
             Ok(AuthUser {
                 user_id,
