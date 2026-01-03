@@ -53,7 +53,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mcpx
       JWT_SECRET: ${JWT_SECRET:-mcpx-dev-secret-change-in-production}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-mcpx-dev-encryption-key-32chr!}
+      # ENCRYPTION_KEY: Config falls back to JWT_SECRET automatically
       # Required by Config but not used by worker
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-not-used}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-not-used}

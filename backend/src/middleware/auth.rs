@@ -98,7 +98,7 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
                                     format!("Database error: {}", e),
                                 )
                             })?
-                            .unwrap_or_else(|| String::new());
+                            .unwrap_or_default();
 
                     // Get role from org_members - MUST be a member
                     let role: Option<String> = sqlx::query_scalar(
