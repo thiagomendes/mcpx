@@ -9,3 +9,4 @@ pub mod metrics;
 pub mod oauth_provider;
 pub mod org;
 pub mod repositories;
+pub mod server_auth;

@@ -504,19 +504,11 @@ pub struct GatewayToolResponse {
 }
 
 const SQL_GET_GATEWAY_SERVERS: &str = r#"
-    SELECT s.id, s.name, s.url, s.auth_type
+    SELECT s.id, s.name, s.url, s.auth_type, s.oauth_client_id, s.oauth_token_url
     FROM gateway_servers gs
     JOIN servers s ON s.id = gs.server_id
     WHERE gs.gateway_id = $1
     ORDER BY gs.priority
-"#;
-
-const SQL_SELECT_CREDENTIAL: &str = r#"
-    SELECT encrypted_value FROM credentials WHERE server_id = $1 AND credential_type = $2
-"#;
-
-const SQL_SELECT_OAUTH_TOKEN: &str = r#"
-    SELECT access_token_encrypted FROM oauth_tokens WHERE server_id = $1 AND org_id = $2
 "#;
 
 const SQL_SELECT_GOVERNANCE: &str = r#"
@@ -562,6 +554,26 @@ struct ServerRowForTools {
     name: String,
     url: String,
     auth_type: Option<String>,
+    oauth_client_id: Option<String>,
+    oauth_token_url: Option<String>,
+}
+
+impl crate::services::server_auth::AuthenticableServer for ServerRowForTools {
+    fn id(&self) -> Uuid {
+        self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn auth_type(&self) -> Option<&str> {
+        self.auth_type.as_deref()
+    }
+    fn oauth_client_id(&self) -> Option<&str> {
+        self.oauth_client_id.as_deref()
+    }
+    fn oauth_token_url(&self) -> Option<&str> {
+        self.oauth_token_url.as_deref()
+    }
 }
 
 /// GET /api/gateways/:slug/tools - List tools from all servers in gateway (JWT auth)
@@ -610,9 +622,14 @@ pub async fn list_gateway_tools(
     let mut all_tools: Vec<GatewayToolResponse> = Vec::new();
 
     for server in &servers {
-        // Build auth headers for server
-        let (auth_header_name, auth_header_value) =
-            get_server_auth_header(&state, server, org_id).await;
+        // Build auth headers for server using centralized service
+        let (auth_header_name, auth_header_value) = crate::services::server_auth::get_auth_headers(
+            &state.db.pool,
+            server,
+            &state.config.encryption_key,
+            Some(org_id),
+        )
+        .await;
 
         // Fetch governance config for this server
         let governance = get_server_governance(&state, server.id).await;
@@ -675,86 +692,4 @@ fn json_to_vec(value: &serde_json::Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-/// Get auth headers for a server (uses same pattern as proxy.rs)
-async fn get_server_auth_header(
-    state: &AppState,
-    server: &ServerRowForTools,
-    org_id: uuid::Uuid,
-) -> (Option<String>, Option<String>) {
-    use crate::services::crypto;
-
-    match server.auth_type.as_deref() {
-        Some("api_key") => {
-            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
-                .bind(server.id)
-                .bind("api_key")
-                .fetch_optional(&state.db.pool)
-                .await
-                .ok()
-                .flatten();
-
-            if let Some((encrypted,)) = row {
-                let key = crypto::derive_key(&state.config.encryption_key);
-                match crypto::decrypt(&encrypted, &key) {
-                    Ok(api_key) => (Some("X-API-Key".to_string()), Some(api_key)),
-                    Err(_) => (None, None),
-                }
-            } else {
-                (None, None)
-            }
-        }
-        Some("bearer") => {
-            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_CREDENTIAL)
-                .bind(server.id)
-                .bind("bearer")
-                .fetch_optional(&state.db.pool)
-                .await
-                .ok()
-                .flatten();
-
-            if let Some((encrypted,)) = row {
-                let key = crypto::derive_key(&state.config.encryption_key);
-                match crypto::decrypt(&encrypted, &key) {
-                    Ok(token) => (
-                        Some("Authorization".to_string()),
-                        Some(format!("Bearer {}", token)),
-                    ),
-                    Err(_) => (None, None),
-                }
-            } else {
-                (None, None)
-            }
-        }
-        Some("oauth_auto") => {
-            // Fetch OAuth token from oauth_tokens table (per-org)
-            let row: Option<(String,)> = sqlx::query_as(SQL_SELECT_OAUTH_TOKEN)
-                .bind(server.id)
-                .bind(org_id)
-                .fetch_optional(&state.db.pool)
-                .await
-                .ok()
-                .flatten();
-
-            if let Some((encrypted,)) = row {
-                let key = crypto::derive_key(&state.config.encryption_key);
-                match crypto::decrypt(&encrypted, &key) {
-                    Ok(token) => (
-                        Some("Authorization".to_string()),
-                        Some(format!("Bearer {}", token)),
-                    ),
-                    Err(_) => (None, None),
-                }
-            } else {
-                tracing::warn!(
-                    "No OAuth token found for server {} in org {}",
-                    server.name,
-                    org_id
-                );
-                (None, None)
-            }
-        }
-        _ => (None, None),
-    }
 }

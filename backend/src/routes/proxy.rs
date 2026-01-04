@@ -671,10 +671,10 @@ async fn handle_gateway_proxy(
                         }
                     }
                 }
-
-                forward_request(
+                // Forward to upstream server
+                let mut response = forward_request(
                     &server.url,
-                    modified_headers,
+                    modified_headers.clone(),
                     auth_headers,
                     body_bytes.to_vec(),
                 )
@@ -684,7 +684,22 @@ async fn handle_gateway_proxy(
                         StatusCode::BAD_GATEWAY,
                         format!("{}: {}", error::PROXY_ERROR, e),
                     )
-                })
+                })?;
+
+                // IMPORTANT: Override mcp-session-id in response with gateway session ID
+                if let Some(gw_session) =
+                    headers.get("mcp-session-id").and_then(|v| v.to_str().ok())
+                {
+                    if gw_session.starts_with("gw_") {
+                        if let Ok(header_value) = gw_session.parse() {
+                            response
+                                .headers_mut()
+                                .insert("mcp-session-id", header_value);
+                        }
+                    }
+                }
+
+                Ok(response)
             } else {
                 Err((StatusCode::BAD_REQUEST, "No servers in gateway".to_string()))
             }
@@ -911,6 +926,12 @@ async fn handle_gateway_initialize(
         .headers_mut()
         .insert("mcp-session-id", gateway_session_id.parse().unwrap());
 
+    tracing::info!(
+        "Gateway initialize complete. Generated session: {}. Server sessions: {:?}",
+        gateway_session_id,
+        server_sessions.keys().collect::<Vec<_>>()
+    );
+
     Ok(response)
 }
 
@@ -1092,19 +1113,52 @@ async fn handle_gateway_tools_call(
                                 server.name
                             );
                         }
+                    } else {
+                        tracing::warn!(
+                            "No server session found for '{}' in gateway session",
+                            server.name
+                        );
                     }
+                } else {
+                    tracing::warn!("Gateway session '{}' not found in database", gw_session);
+                }
+            } else {
+                tracing::warn!(
+                    "mcp-session-id '{}' does not start with 'gw_' - not a gateway session",
+                    gw_session
+                );
+            }
+        } else {
+            tracing::warn!("No mcp-session-id header in request");
+        }
+        // Forward to upstream server
+        let mut response = forward_request(
+            &server.url,
+            modified_headers.clone(),
+            auth_headers,
+            modified_body,
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("{}: {}", error::PROXY_ERROR, e),
+            )
+        })?;
+
+        // IMPORTANT: Override mcp-session-id in response with gateway session ID
+        // The upstream server returns its own session ID, but we need to return the gateway's
+        if let Some(gw_session) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok()) {
+            if gw_session.starts_with("gw_") {
+                if let Ok(header_value) = gw_session.parse() {
+                    response
+                        .headers_mut()
+                        .insert("mcp-session-id", header_value);
                 }
             }
         }
 
-        return forward_request(&server.url, modified_headers, auth_headers, modified_body)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::BAD_GATEWAY,
-                    format!("{}: {}", error::PROXY_ERROR, e),
-                )
-            });
+        return Ok(response);
     }
 
     tracing::warn!(
