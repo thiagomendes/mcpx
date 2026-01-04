@@ -1,7 +1,27 @@
 # MCPX - Estado do Projeto
 
-**Última atualização:** 2026-01-02
-**Branch:** feature/configuration-management
+**Última atualização:** 2026-01-04
+**Branch:** main
+
+---
+
+## ✅ IMPLEMENTADO E FUNCIONANDO
+
+### Distributed Workers & Gateway Session Fix
+
+**Status:** ✅ **COMPLETO**
+
+Arquitetura distribuída para background jobs e correção crítica do gateway.
+
+| Feature | Descrição | Status |
+|---------|-----------|--------|
+| Web/Worker separation | Binários separados (`mcpx-web`, `mcpx-worker`) | ✅ |
+| PostgreSQL Job Queue | Locking distribuído com `FOR UPDATE SKIP LOCKED` | ✅ |
+| Centralized Server Auth | `server_auth.rs` com suporte a todos auth types | ✅ |
+| Gateway Session Fix | Preserva `gw_*` session ID nas respostas | ✅ |
+| OAuth Token Persistence | `oauth_client_credentials` persiste tokens no DB | ✅ |
+
+**Testado:** 17/17 tools gateway funcionando (100%)
 
 ---
 
