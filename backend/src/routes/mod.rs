@@ -4,6 +4,7 @@ pub mod auth;
 pub mod credentials;
 pub mod gateways;
 pub mod governance;
+pub mod jobs;
 pub mod metrics;
 pub mod oauth;
 pub mod orgs;

@@ -329,12 +329,12 @@ pub async fn update_setting(
 // ============================================
 
 pub async fn get_org_setting_value(
-    db: &crate::Database,
+    db: &crate::services::db::Database,
     org_id: Uuid,
     key: &str,
     default: &str,
 ) -> String {
-    let result: Option<(String,)> = sqlx::query_as(
+    let result: Option<(String,)> = sqlx::query_as::<_, (String,)>(
         "SELECT setting_value FROM org_settings WHERE org_id = $1 AND setting_key = $2",
     )
     .bind(org_id)

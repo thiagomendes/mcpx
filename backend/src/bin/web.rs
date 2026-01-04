@@ -1,36 +1,23 @@
-mod config;
-mod jobs;
-mod messages;
-mod middleware;
-mod models;
-mod routes;
-mod services;
-
-#[cfg(test)]
-mod tests;
+//! MCPX Web Server
+//!
+//! HTTP API for the MCPX dashboard and MCP proxy.
+//! Background jobs run in the separate worker service.
 
 use axum::{
     routing::{delete, get, post, put},
     Router,
 };
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use config::Config;
-use services::db::Database;
-
-pub struct AppState {
-    pub config: Config,
-    pub db: Database,
-}
+use mcpx_backend::{config::Config, routes, services::db::Database, AppState};
 
 #[tokio::main]
 async fn main() {
     use std::io::Write;
 
-    eprintln!("=== mcpx backend starting ===");
+    eprintln!("=== mcpx web server starting ===");
     std::io::stderr().flush().ok();
 
     dotenvy::dotenv().ok();
@@ -74,56 +61,10 @@ async fn main() {
     }
     println!("7. Migrations complete!");
 
-    let state = Arc::new(AppState {
-        config: config.clone(),
-        db: db.clone(),
-    });
+    let state = AppState::new(config.clone(), db.clone());
 
-    let health_check_interval: u64 = std::env::var("HEALTH_CHECK_INTERVAL_SECONDS")
-        .unwrap_or_else(|_| "300".to_string())
-        .parse()
-        .unwrap_or(300);
-
-    services::health_check::start_health_check_job(
-        db.clone(),
-        config.encryption_key.clone(),
-        health_check_interval,
-    )
-    .await;
-    println!(
-        "8. Health check job started ({}s interval)",
-        health_check_interval
-    );
-
-    // Alert Evaluator Job (designed for future extraction to separate service)
-    let alert_eval_interval: u64 = std::env::var("ALERT_EVAL_INTERVAL_SECONDS")
-        .unwrap_or_else(|_| "60".to_string())
-        .parse()
-        .unwrap_or(60);
-
-    let alert_pool = db.pool.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(alert_eval_interval)).await;
-            match jobs::alert_evaluator::run_evaluation_cycle(&alert_pool).await {
-                Ok(results) => {
-                    if !results.is_empty() {
-                        tracing::debug!(
-                            "Alert evaluation completed: {} rules checked",
-                            results.len()
-                        );
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Alert evaluation failed: {}", e);
-                }
-            }
-        }
-    });
-    println!(
-        "9. Alert evaluator job started ({}s interval)",
-        alert_eval_interval
-    );
+    // NOTE: Background jobs now run in separate worker service
+    println!("8. Background jobs delegated to worker service");
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -304,7 +245,7 @@ async fn main() {
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("🚀 mcpx backend listening on http://{}", addr);
+    tracing::info!("🚀 mcpx web server listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

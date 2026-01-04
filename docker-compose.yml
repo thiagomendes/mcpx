@@ -20,6 +20,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: web
     container_name: mcpx-backend
     ports:
       - "8080:8080"
@@ -41,6 +42,29 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Background job worker (separate service)
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: worker
+    container_name: mcpx-worker
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mcpx
+      JWT_SECRET: ${JWT_SECRET:-mcpx-dev-secret-change-in-production}
+      # ENCRYPTION_KEY: Config falls back to JWT_SECRET automatically
+      # Required by Config but not used by worker
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-not-used}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-not-used}
+      RUST_LOG: info,mcpx_worker=debug
+      MCPX_WORKER_ID: worker-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
 
   frontend:
     build:

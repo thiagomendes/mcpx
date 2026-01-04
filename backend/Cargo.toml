@@ -3,9 +3,18 @@ name = "mcpx-backend"
 version = "1.0.0"
 edition = "2021"
 
+[lib]
+path = "src/lib.rs"
+
+# Web server (API + MCP Proxy)
 [[bin]]
-name = "mcpx-backend"
-path = "src/main.rs"
+name = "mcpx-web"
+path = "src/bin/web.rs"
+
+# Background worker (Jobs)
+[[bin]]
+name = "mcpx-worker"
+path = "src/bin/worker.rs"
 
 [dependencies]
 # Web framework
