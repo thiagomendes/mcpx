@@ -167,9 +167,12 @@ async fn main() {
         )
         .route("/api/metrics/query", post(routes::metrics::query))
         .route("/api/metrics/summary", get(routes::metrics::get_summary))
-        // Audit Logs
-        .route("/api/audit", get(routes::audit::list_audit_logs))
-        .route("/api/audit/:id", get(routes::audit::get_audit_log))
+        // Request Logs (MCP requests)
+        .route("/api/request-logs", get(routes::request_logs::list_request_logs))
+        .route("/api/request-logs/:id", get(routes::request_logs::get_request_log))
+        // Audit Logs (admin actions)
+        .route("/api/audit-logs", get(routes::audit::list_audit_logs))
+        .route("/api/audit-logs/:id", get(routes::audit::get_audit_log))
         // Alerts
         .route("/api/alerts", get(routes::alerts::list_rules))
         .route("/api/alerts", post(routes::alerts::create_rule))

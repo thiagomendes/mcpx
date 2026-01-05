@@ -39,14 +39,36 @@
           <RectangleStackIcon class="w-5 h-5" />
           Gateways
         </router-link>
-        <router-link 
-          to="/audit" 
-          class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-background-hover transition-colors"
-          active-class="!text-white !bg-background-hover"
-        >
-          <ClipboardDocumentListIcon class="w-5 h-5" />
-          Audit Logs
-        </router-link>
+        <!-- Logs Menu -->
+        <div>
+          <button 
+            @click="logsMenuOpen = !logsMenuOpen"
+            class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-background-hover transition-colors"
+            :class="{ '!text-white': isLogsActive }"
+          >
+            <div class="flex items-center gap-3">
+              <ClipboardDocumentListIcon class="w-5 h-5" />
+              Logs
+            </div>
+            <ChevronDownIcon class="w-4 h-4 transition-transform" :class="{ 'rotate-180': logsMenuOpen }" />
+          </button>
+          <div v-if="logsMenuOpen" class="ml-6 mt-1 space-y-1">
+            <router-link 
+              to="/logs/requests" 
+              class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-background-hover transition-colors text-sm"
+              active-class="!text-white !bg-background-hover"
+            >
+              Request Logs
+            </router-link>
+            <router-link 
+              to="/logs/audit" 
+              class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-background-hover transition-colors text-sm"
+              active-class="!text-white !bg-background-hover"
+            >
+              Audit Logs
+            </router-link>
+          </div>
+        </div>
         <router-link 
           to="/alerts" 
           class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-background-hover transition-colors"
@@ -100,7 +122,8 @@
 </template>
 
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { ref, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import OrgSwitcher from '@/components/OrgSwitcher.vue'
 import { 
@@ -109,14 +132,20 @@ import {
   RectangleStackIcon,
   ClipboardDocumentListIcon,
   BellIcon,
-  ArrowRightOnRectangleIcon 
+  ArrowRightOnRectangleIcon,
+  ChevronDownIcon 
 } from '@heroicons/vue/24/outline'
 import GoogleIcon from '@/components/icons/GoogleIcon.vue'
 import GitHubIcon from '@/components/icons/GitHubIcon.vue'
 import MicrosoftIcon from '@/components/icons/MicrosoftIcon.vue'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
+
+// Logs submenu state
+const logsMenuOpen = ref(true)
+const isLogsActive = computed(() => route.path.startsWith('/logs'))
 
 function handleLogout() {
   authStore.logout()

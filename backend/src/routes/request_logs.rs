@@ -1,6 +1,6 @@
-//! Audit Logs API Routes
+//! Request Logs API Routes
 //!
-//! Exposes admin/user action audit trail via REST API
+//! Exposes MCP request/response logs via REST API
 
 use axum::{
     extract::{Path, Query, State},
@@ -12,19 +12,19 @@ use uuid::Uuid;
 
 use crate::messages::error;
 use crate::middleware::auth::AuthUser;
-use crate::services::audit::{self, AuditLogListResponse, AuditLogDetail, AuditLogQuery};
+use crate::services::request_logs::{self, RequestLogListResponse, RequestLogDetail, RequestLogQuery};
 use crate::AppState;
 
-/// GET /api/audit-logs
-/// List audit logs with pagination and filters
-pub async fn list_audit_logs(
+/// GET /api/request-logs
+/// List request logs with pagination and filters
+pub async fn list_request_logs(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-    Query(query): Query<AuditLogQuery>,
-) -> Result<Json<AuditLogListResponse>, (StatusCode, String)> {
+    Query(query): Query<RequestLogQuery>,
+) -> Result<Json<RequestLogListResponse>, (StatusCode, String)> {
     let org_id = auth.org_id;
 
-    let response = audit::list_audit_logs(&state.db.pool, org_id, query)
+    let response = request_logs::list_request_logs(&state.db.pool, org_id, query)
         .await
         .map_err(|e| {
             (
@@ -36,16 +36,16 @@ pub async fn list_audit_logs(
     Ok(Json(response))
 }
 
-/// GET /api/audit-logs/:id
-/// Get audit log detail by ID
-pub async fn get_audit_log(
+/// GET /api/request-logs/:id
+/// Get request log detail by ID
+pub async fn get_request_log(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
-) -> Result<Json<AuditLogDetail>, (StatusCode, String)> {
+) -> Result<Json<RequestLogDetail>, (StatusCode, String)> {
     let org_id = auth.org_id;
 
-    let log = audit::get_audit_log(&state.db.pool, org_id, id)
+    let log = request_logs::get_request_log(&state.db.pool, org_id, id)
         .await
         .map_err(|e| {
             (
@@ -56,6 +56,6 @@ pub async fn get_audit_log(
 
     match log {
         Some(l) => Ok(Json(l)),
-        None => Err((StatusCode::NOT_FOUND, "Audit log not found".to_string())),
+        None => Err((StatusCode::NOT_FOUND, "Request log not found".to_string())),
     }
 }

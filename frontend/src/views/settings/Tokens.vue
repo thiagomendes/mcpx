@@ -216,7 +216,7 @@ interface Token {
 }
 
 const authStore = useAuthStore()
-const { canWrite } = usePermissions()
+usePermissions() // For permission checks if needed
 const tokens = ref<Token[]>([])
 const loading = ref(true)
 const showCreateModal = ref(false)
