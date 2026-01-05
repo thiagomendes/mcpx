@@ -32,6 +32,18 @@ spec:
             configMapKeyRef:
               name: mcpx-config
               key: RUST_LOG
+        - name: BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: mcpx-config
+              key: BASE_URL
+              optional: true
+        - name: FRONTEND_URL
+          valueFrom:
+            configMapKeyRef:
+              name: mcpx-config
+              key: FRONTEND_URL
+              optional: true
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
