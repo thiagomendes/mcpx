@@ -89,10 +89,11 @@
           </tr>
         </thead>
         <tbody>
-          <tr 
+        <tr 
             v-for="log in store.logs" 
             :key="log.id"
-            class="border-b border-border hover:bg-background-hover transition-colors"
+            class="border-b border-border hover:bg-background-hover transition-colors cursor-pointer"
+            @click="viewDetail(log.id)"
           >
             <td class="px-4 py-3">
               <div class="flex items-center gap-2 text-sm text-gray-400 font-mono">
@@ -146,6 +147,60 @@
         </div>
       </div>
     </div>
+
+    <!-- Detail Modal -->
+    <div v-if="showDetailModal && store.selectedLog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="closeModal">
+      <div class="card w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+        <div class="flex items-center justify-between p-4 border-b border-border">
+          <h2 class="text-lg font-semibold">Audit Log Details</h2>
+          <button class="btn btn-ghost p-2" @click="closeModal">
+            <XMarkIcon class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="p-4 overflow-y-auto flex-1">
+          <div class="grid grid-cols-2 gap-4 mb-6">
+            <div>
+              <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Time</label>
+              <span class="text-sm">{{ formatTime(store.selectedLog.time) }}</span>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Action</label>
+              <span class="px-2 py-1 rounded text-xs font-medium" :class="getActionClass(store.selectedLog.action)">
+                {{ formatAction(store.selectedLog.action) }}
+              </span>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Resource Type</label>
+              <span class="text-sm">{{ store.selectedLog.resource_type }}</span>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Resource Name</label>
+              <span class="text-sm">{{ store.selectedLog.resource_name || '-' }}</span>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Resource ID</label>
+              <span class="text-sm font-mono">{{ store.selectedLog.resource_id || '-' }}</span>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">IP Address</label>
+              <span class="text-sm font-mono">{{ store.selectedLog.ip_address || '-' }}</span>
+            </div>
+          </div>
+          
+          <div v-if="store.selectedLog.details" class="mb-4">
+            <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">Details</label>
+            <div class="bg-background-card rounded-lg p-4 border border-border">
+              <pre class="text-sm text-gray-300 overflow-x-auto whitespace-pre-wrap">{{ JSON.stringify(store.selectedLog.details, null, 2) }}</pre>
+            </div>
+          </div>
+          
+          <div v-if="store.selectedLog.user_agent" class="mb-4">
+            <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">User Agent</label>
+            <span class="text-sm text-gray-400">{{ store.selectedLog.user_agent }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
   </DashboardLayout>
 </template>
 
@@ -160,6 +215,7 @@ import {
   ChevronRightIcon,
   ShieldCheckIcon,
   ArrowPathIcon,
+  XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
 const store = useAuditLogsStore()
@@ -167,6 +223,7 @@ const store = useAuditLogsStore()
 // Filters
 const filterAction = ref('')
 const filterResourceType = ref('')
+const showDetailModal = ref(false)
 const filterHours = ref(168)
 
 // Computed
@@ -200,6 +257,16 @@ function clearFilters() {
 
 function refreshAll() {
   applyFilters()
+}
+
+async function viewDetail(logId: string) {
+  await store.fetchLogDetail(logId)
+  showDetailModal.value = true
+}
+
+function closeModal() {
+  showDetailModal.value = false
+  store.clearSelection()
 }
 
 function formatTime(isoString: string): string {
