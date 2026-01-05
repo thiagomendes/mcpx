@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: utilities-mcp
+  namespace: mcpx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: utilities-mcp
+  template:
+    metadata:
+      labels:
+        app: utilities-mcp
+    spec:
+      containers:
+      - name: utilities
+        image: mcpx-utilities:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8001
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 3
+          periodSeconds: 5
