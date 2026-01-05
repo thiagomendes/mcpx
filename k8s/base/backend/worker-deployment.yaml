@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcpx-worker
+  namespace: mcpx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcpx-worker
+  template:
+    metadata:
+      labels:
+        app: mcpx-worker
+    spec:
+      containers:
+      - name: worker
+        image: mcpx-worker:latest
+        imagePullPolicy: IfNotPresent
+        command: ["./mcpx-worker"]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: mcpx-config
+              key: DATABASE_URL
+        - name: RUST_LOG
+          valueFrom:
+            configMapKeyRef:
+              name: mcpx-config
+              key: RUST_LOG
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: mcpx-secrets
+              key: JWT_SECRET
+        - name: GOOGLE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: mcpx-secrets
+              key: GOOGLE_CLIENT_ID
+        - name: GOOGLE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: mcpx-secrets
+              key: GOOGLE_CLIENT_SECRET
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"

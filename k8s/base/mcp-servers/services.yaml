@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: weather-mcp
+  namespace: mcpx
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  selector:
+    app: weather-mcp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: utilities-mcp
+  namespace: mcpx
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  selector:
+    app: utilities-mcp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: filesystem-mcp
+  namespace: mcpx
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  selector:
+    app: filesystem-mcp

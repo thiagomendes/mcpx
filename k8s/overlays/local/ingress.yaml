@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcpx-ingress
+  namespace: mcpx
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: mcpx.127.0.0.1.nip.io
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: mcpx-web
+            port:
+              number: 8080
+      - path: /mcp
+        pathType: Prefix
+        backend:
+          service:
+            name: mcpx-web
+            port:
+              number: 8080
+      - path: /health
+        pathType: Exact
+        backend:
+          service:
+            name: mcpx-web
+            port:
+              number: 8080
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mcpx-frontend
+            port:
+              number: 3000

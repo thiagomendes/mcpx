@@ -1,0 +1,8 @@
+# Self-signed ClusterIssuer for local HTTPS development
+# Used by cert-manager to generate self-signed certificates
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}

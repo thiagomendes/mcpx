@@ -44,3 +44,5 @@ backend/target/
 # Legacy
 web/node_modules/
 web/.nuxt/
+k8s/overlays/local/secrets.local.yaml
+k8s/overlays/local-https/secrets.local.yaml
