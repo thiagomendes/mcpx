@@ -177,6 +177,8 @@ docker compose up -d
 
 For testing Kubernetes deployments locally. **HTTPS is required** for Microsoft OAuth.
 
+> **Alternativas ao kind**: Este guia usa [kind](https://kind.sigs.k8s.io/) como exemplo, mas você pode usar qualquer instalação local de Kubernetes como [minikube](https://minikube.sigs.k8s.io/), [k3s](https://k3s.io/), [Docker Desktop Kubernetes](https://docs.docker.com/desktop/kubernetes/), ou [Rancher Desktop](https://rancherdesktop.io/). Adapte os comandos de criação do cluster e load de imagens conforme sua escolha.
+
 ### Step 1: Create Kind Cluster
 
 ```bash
