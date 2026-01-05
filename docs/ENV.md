@@ -394,22 +394,40 @@ az postgres server create \
 
 ### Step 2: Configure Secrets Management
 
-Use a proper secrets management solution:
+> **Recommended**: Use your cloud provider's secrets vault for production environments.
 
-**Option A: Kubernetes Secrets with encryption**
+#### Cloud Provider Vaults (Recommended)
+
+| Provider | Service | Documentation |
+|----------|---------|---------------|
+| AWS | Secrets Manager | [docs](https://aws.amazon.com/secrets-manager/) |
+| GCP | Secret Manager | [docs](https://cloud.google.com/secret-manager) |
+| Azure | Key Vault | [docs](https://azure.microsoft.com/products/key-vault/) |
+
+**Benefits:**
+- Automatic rotation of secrets
+- Audit logging of access
+- Fine-grained IAM permissions
+- Encryption at rest and in transit
+- No secrets in version control
+
+#### Integration with Kubernetes
+
+Use [External Secrets Operator](https://external-secrets.io/) to sync secrets from your vault to Kubernetes:
+
 ```bash
-kubectl create secret generic mcpx-secrets \
-  --from-literal=DATABASE_URL="postgresql://user:pass@host:5432/mcpx" \
-  --from-literal=JWT_SECRET="..." \
-  --dry-run=client -o yaml | kubectl apply -f -
+# Install External Secrets Operator
+helm repo add external-secrets https://charts.external-secrets.io
+helm install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace
 ```
 
-**Option B: External Secrets Operator**
+**AWS Secrets Manager example:**
 ```yaml
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
   name: mcpx-secrets
+  namespace: mcpx
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -421,7 +439,29 @@ spec:
     - secretKey: DATABASE_URL
       remoteRef:
         key: mcpx/database-url
+    - secretKey: JWT_SECRET
+      remoteRef:
+        key: mcpx/jwt-secret
+    - secretKey: GOOGLE_CLIENT_ID
+      remoteRef:
+        key: mcpx/google-client-id
+    - secretKey: GOOGLE_CLIENT_SECRET
+      remoteRef:
+        key: mcpx/google-client-secret
 ```
+
+#### Alternative: Kubernetes Secrets (Not Recommended for Production)
+
+Only if vault integration is not possible:
+
+```bash
+kubectl create secret generic mcpx-secrets \
+  --from-literal=DATABASE_URL="postgresql://user:pass@host:5432/mcpx" \
+  --from-literal=JWT_SECRET="..." \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+> ⚠️ **Warning**: This approach stores secrets in etcd. Enable [encryption at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/) if using this method.
 
 ### Step 3: Create Production Overlay
 
