@@ -302,6 +302,8 @@ kubectl get ingress -n mcpx
 
 Open https://mcpx.127.0.0.1.nip.io
 
+> **Sobre nip.io**: O domínio `mcpx.127.0.0.1.nip.io` resolve automaticamente para `127.0.0.1` (o IP está embutido no hostname). **Não é necessário editar `/etc/hosts`**.
+
 > **Note**: Accept the self-signed certificate warning in your browser.
 
 ### Troubleshooting
