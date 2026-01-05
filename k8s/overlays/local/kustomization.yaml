@@ -8,6 +8,7 @@ resources:
 # Override secrets from base with local values (not versioned)
 patchesStrategicMerge:
   - secrets.local.yaml
+  - configmap.yaml
 
 # Scale replicas and reduce resources for local development
 patches:
