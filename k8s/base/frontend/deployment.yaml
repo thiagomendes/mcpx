@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcpx-frontend
+  namespace: mcpx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcpx-frontend
+  template:
+    metadata:
+      labels:
+        app: mcpx-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: mcpx-frontend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: VITE_API_BASE_URL
+          value: "http://mcpx-web:8080"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5

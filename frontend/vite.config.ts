@@ -12,6 +12,7 @@ export default defineConfig({
   server: {
     host: true,
     port: 3000,
+    allowedHosts: true,  // Allow any host (needed for K8s Ingress)
     proxy: {
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8080',
