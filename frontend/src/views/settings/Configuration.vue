@@ -1,6 +1,6 @@
 <template>
   <DashboardLayout>
-    <div class="max-w-4xl">
+    <div>
       <div class="mb-6">
         <h1 class="text-2xl font-bold mb-1">System Configuration</h1>
         <p class="text-gray-400">Configure token expiry and resource limits for your organization</p>

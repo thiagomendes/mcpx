@@ -101,7 +101,8 @@
 
     <!-- Logs Table -->
     <div v-else class="card overflow-hidden p-0">
-      <table class="w-full">
+      <div class="overflow-x-auto">
+      <table class="w-full min-w-[800px]">
         <thead>
           <tr class="border-b border-border bg-background-card">
             <th class="text-left text-xs font-semibold uppercase text-gray-400 px-4 py-3">Time</th>
@@ -173,6 +174,7 @@
           </tr>
         </tbody>
       </table>
+      </div>
 
       <!-- Pagination -->
       <div class="flex items-center justify-between px-4 py-3 border-t border-border">

@@ -1,6 +1,6 @@
 <template>
   <DashboardLayout>
-    <div class="max-w-4xl">
+    <div>
       <div class="flex items-center justify-between mb-6">
         <div>
           <h1 class="text-2xl font-bold mb-1">Personal Access Tokens</h1>
