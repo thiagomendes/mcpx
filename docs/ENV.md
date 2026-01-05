@@ -538,11 +538,42 @@ kubectl get pods -n mcpx
 
 ### OAuth Redirect URIs
 
+#### Development
+
 | Provider | Docker Compose | K8s Local (HTTPS) |
 |----------|----------------|-------------------|
 | Google | `http://localhost:8080/api/auth/google/callback` | `https://mcpx.127.0.0.1.nip.io/api/auth/google/callback` |
 | GitHub | `http://localhost:8080/api/auth/github/callback` | `https://mcpx.127.0.0.1.nip.io/api/auth/github/callback` |
 | Microsoft | `http://localhost:8080/api/auth/microsoft/callback` | `https://mcpx.127.0.0.1.nip.io/api/auth/microsoft/callback` |
+
+#### Production
+
+Para produção, você precisa registrar os redirect URIs com seu **domínio real** em cada provider OAuth.
+
+**Formato do redirect URI:**
+```
+https://seu-dominio.com/api/auth/{provider}/callback
+```
+
+**Exemplo para `mcpx.example.com`:**
+
+| Provider | Redirect URI |
+|----------|--------------|
+| Google | `https://mcpx.example.com/api/auth/google/callback` |
+| GitHub | `https://mcpx.example.com/api/auth/github/callback` |
+| Microsoft | `https://mcpx.example.com/api/auth/microsoft/callback` |
+
+**Checklist para produção:**
+
+1. **Registrar domínio** no DNS apontando para seu load balancer/ingress
+2. **Atualizar OAuth providers** com os novos redirect URIs:
+   - Google: [Cloud Console](https://console.cloud.google.com/apis/credentials)
+   - GitHub: [Developer Settings](https://github.com/settings/developers)
+   - Microsoft: [Azure Portal](https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
+3. **Atualizar ConfigMap** com `BASE_URL` e `FRONTEND_URL` apontando para o domínio
+4. **Aguardar propagação DNS** antes de testar (pode levar até 24h)
+
+> **Importante**: Os providers OAuth validam o domínio do redirect URI. Certifique-se de que o `BASE_URL` no ConfigMap corresponde exatamente ao domínio registrado nos providers.
 
 ### Useful Commands
 
