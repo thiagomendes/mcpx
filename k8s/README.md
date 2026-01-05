@@ -10,24 +10,13 @@ Deploy mcpx to any Kubernetes cluster.
 
 ## Quick Start
 
-### 1. Create secrets file (for real values)
+### 1. Create secrets file
 
 ```bash
-cp k8s/base/secrets.yaml k8s/base/secrets.local.yaml
+cp k8s/base/secrets.yaml k8s/overlays/local/secrets.local.yaml
 ```
 
-Edit `k8s/base/secrets.local.yaml` with your actual values:
-- `JWT_SECRET`: 32+ character secret
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`: For OAuth login
-- `POSTGRES_PASSWORD`: Database password
-
-Then apply before deploying:
-```bash
-kubectl apply -f k8s/base/secrets.local.yaml
-```
-- `JWT_SECRET`: 32+ character secret
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`: For OAuth login
-- `POSTGRES_PASSWORD`: Database password
+Edit `secrets.local.yaml` with your OAuth credentials from your `.env` file.
 
 ### 2. Build and load images (for kind)
 
@@ -37,7 +26,7 @@ docker build --target web -t mcpx-backend:latest ./backend
 docker build --target worker -t mcpx-worker:latest ./backend
 docker build -t mcpx-frontend:latest ./frontend
 
-# Load into kind (skip if using registry)
+# Load into kind
 kind load docker-image mcpx-backend:latest --name local
 kind load docker-image mcpx-worker:latest --name local
 kind load docker-image mcpx-frontend:latest --name local
@@ -49,34 +38,69 @@ kind load docker-image mcpx-frontend:latest --name local
 kubectl apply -k k8s/overlays/local
 ```
 
-### 4. Access
+### 4. Configure OAuth Providers
 
-Add to `/etc/hosts`:
-```
-127.0.0.1 mcpx.local
+Add these redirect URIs in your OAuth provider consoles:
+
+| Provider | Redirect URI |
+|----------|--------------|
+| Google | `http://mcpx.127.0.0.1.nip.io/api/auth/google/callback` |
+| GitHub | `http://mcpx.127.0.0.1.nip.io/api/auth/github/callback` |
+
+### 5. Access
+
+Open: http://mcpx.127.0.0.1.nip.io
+
+---
+
+## Optional: HTTPS (for Azure OAuth)
+
+Azure requires HTTPS. Use the `local-https` overlay with cert-manager.
+
+### 1. Install cert-manager
+
+```bash
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml
+kubectl wait --for=condition=Available deployment --all -n cert-manager --timeout=120s
 ```
 
-Access: http://mcpx.local
+### 2. Deploy with HTTPS
+
+```bash
+kubectl apply -k k8s/overlays/local-https
+```
+
+### 3. Configure Microsoft OAuth
+
+Add in Azure Portal:
+```
+https://mcpx.127.0.0.1.nip.io/api/auth/microsoft/callback
+```
+
+### 4. Accept self-signed certificate
+
+Access https://mcpx.127.0.0.1.nip.io and accept the browser warning.
+
+---
 
 ## Structure
 
 ```
 k8s/
 ├── base/                    # Base manifests
-│   ├── kustomization.yaml
-│   ├── namespace.yaml
-│   ├── configmap.yaml
-│   ├── secrets.yaml.example # Copy to secrets.yaml
-│   ├── postgres/
-│   ├── backend/
-│   └── frontend/
+│   ├── backend/             # Web and worker deployments
+│   ├── frontend/            # Frontend deployment
+│   ├── postgres/            # PostgreSQL StatefulSet
+│   └── mcp-servers/         # Example MCP servers
 └── overlays/
-    ├── local/              # For kind/local clusters
-    └── production/         # For cloud providers
+    ├── local/               # HTTP (default)
+    ├── local-https/         # HTTPS with cert-manager (for Azure)
+    └── production/          # For cloud providers
 ```
 
 ## Production Notes
 
+- Use Let's Encrypt instead of self-signed certificates
 - Use sealed-secrets or external-secrets for secret management
 - Configure HPA for auto-scaling
 - Use managed PostgreSQL (RDS, Cloud SQL, etc.)

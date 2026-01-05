@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcpx-config
+  namespace: mcpx
+data:
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/mcpx"
+  RUST_LOG: "info"
+  FRONTEND_URL: "https://mcpx.127.0.0.1.nip.io"
+  BACKEND_URL: "http://mcpx-web:8080"
+  BASE_URL: "https://mcpx.127.0.0.1.nip.io"
