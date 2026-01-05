@@ -190,6 +190,7 @@ const saving = ref(false)
 const error = ref<string | null>(null)
 const success = ref<string | null>(null)
 const toolsList = ref<ToolInfo[]>([])
+const isLoading = ref(false)
 
 const hasConfig = computed(() => {
   return selectedTools.value.length > 0 || prefix.value.length > 0
@@ -222,7 +223,10 @@ const summaryTextClass = computed(() => {
 })
 
 watch(filterMode, () => {
-  selectedTools.value = []
+  // Don't clear when loading config from server
+  if (!isLoading.value) {
+    selectedTools.value = []
+  }
 })
 
 watch(() => props.availableTools, (newTools) => {
@@ -234,6 +238,7 @@ onMounted(async () => {
 })
 
 async function loadConfig() {
+  isLoading.value = true
   try {
     const response = await api.get<GovernanceConfig>(`/servers/${props.serverName}/governance`)
     const config = response.data
@@ -241,13 +246,15 @@ async function loadConfig() {
     prefix.value = config.tool_prefix || ''
     
     if (config.allowed_tools.length > 0) {
-      limitEnabled.value = true
-      filterMode.value = 'allowlist'
+      // Set selectedTools BEFORE filterMode to avoid watcher clearing them
       selectedTools.value = config.allowed_tools
-    } else if (config.denied_tools.length > 0) {
+      filterMode.value = 'allowlist'
       limitEnabled.value = true
-      filterMode.value = 'blocklist'
+    } else if (config.denied_tools.length > 0) {
+      // Set selectedTools BEFORE filterMode to avoid watcher clearing them
       selectedTools.value = config.denied_tools
+      filterMode.value = 'blocklist'
+      limitEnabled.value = true
     } else {
       limitEnabled.value = false
       selectedTools.value = []
@@ -256,6 +263,8 @@ async function loadConfig() {
     limitEnabled.value = false
     selectedTools.value = []
     prefix.value = ''
+  } finally {
+    isLoading.value = false
   }
 }
 
