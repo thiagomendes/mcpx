@@ -327,26 +327,31 @@ Recommendations for production environments on cloud providers.
 
 ### Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Cloud Provider                            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │   DNS       │  │  SSL/TLS    │  │     Kubernetes         │  │
-│  │ (Route53,   │──│ (ACM, Let's │──│     Cluster            │  │
-│  │  CloudDNS)  │  │  Encrypt)   │  │  (EKS, GKE, AKS)       │  │
-│  └─────────────┘  └─────────────┘  └───────────┬─────────────┘  │
-│                                                 │                 │
-│  ┌─────────────────────────────────────────────┼───────────────┐ │
-│  │                    Managed Database (PaaS)   │               │ │
-│  │  ┌─────────────────────────────────────────┐│               │ │
-│  │  │  PostgreSQL                             ││               │ │
-│  │  │  (RDS, Cloud SQL, Azure Database)       ││               │ │
-│  │  │  - Automated backups                    │◀───────────────┘ │
-│  │  │  - High availability                    │                  │
-│  │  │  - Encryption at rest                   │                  │
-│  │  └─────────────────────────────────────────┘                  │
-│  └───────────────────────────────────────────────────────────────┘
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph cloud["Cloud Provider"]
+        DNS["DNS<br/>(Route53, CloudDNS)"]
+        TLS["SSL/TLS<br/>(ACM, Let's Encrypt)"]
+        
+        subgraph k8s["Kubernetes Cluster (EKS, GKE, AKS)"]
+            ingress["Ingress Controller"]
+            web["mcpx-web<br/>Replicas: 3+"]
+            worker["mcpx-worker<br/>Replicas: 2+"]
+            frontend["mcpx-frontend"]
+        end
+        
+        subgraph paas["Managed Database (PaaS)"]
+            db[("PostgreSQL<br/>(RDS, Cloud SQL, Azure DB)<br/>• Automated backups<br/>• High availability<br/>• Encryption at rest")]
+        end
+    end
+    
+    user((User)) --> DNS
+    DNS --> TLS
+    TLS --> ingress
+    ingress --> frontend
+    ingress --> web
+    web --> db
+    worker --> db
 ```
 
 ### Step 1: Set Up Managed Database
