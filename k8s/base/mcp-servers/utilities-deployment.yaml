@@ -18,7 +18,7 @@ spec:
         image: mcpx-utilities:latest
         imagePullPolicy: IfNotPresent
         ports:
-        - containerPort: 8001
+        - containerPort: 8000
           name: http
         resources:
           requests:
@@ -28,14 +28,12 @@ spec:
             memory: "128Mi"
             cpu: "100m"
         livenessProbe:
-          httpGet:
-            path: /health
-            port: 8001
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        readinessProbe:
+          tcpSocket:
+            port: 8000
           initialDelaySeconds: 5
           periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8001
-          initialDelaySeconds: 3
-          periodSeconds: 5

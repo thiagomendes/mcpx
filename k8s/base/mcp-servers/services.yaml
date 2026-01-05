@@ -20,8 +20,8 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-  - port: 8001
-    targetPort: 8001
+  - port: 8000
+    targetPort: 8000
     name: http
   selector:
     app: utilities-mcp
@@ -34,8 +34,8 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-  - port: 8002
-    targetPort: 8002
+  - port: 8000
+    targetPort: 8000
     name: http
   selector:
     app: filesystem-mcp
