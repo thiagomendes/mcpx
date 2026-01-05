@@ -360,41 +360,21 @@ flowchart TB
 
 ### Step 1: Set Up Managed Database
 
-#### AWS RDS
+Utilize o serviço de PostgreSQL gerenciado do seu cloud provider:
 
-```bash
-aws rds create-db-instance \
-  --db-instance-identifier mcpx-db \
-  --db-instance-class db.t3.micro \
-  --engine postgres \
-  --master-username postgres \
-  --master-user-password YOUR_SECURE_PASSWORD \
-  --allocated-storage 20 \
-  --backup-retention-period 7 \
-  --storage-encrypted
-```
+| Provider | Serviço | Documentação |
+|----------|---------|--------------|
+| AWS | RDS for PostgreSQL | [docs](https://docs.aws.amazon.com/rds/latest/userguide/CHAP_PostgreSQL.html) |
+| GCP | Cloud SQL for PostgreSQL | [docs](https://cloud.google.com/sql/docs/postgres) |
+| Azure | Azure Database for PostgreSQL | [docs](https://learn.microsoft.com/azure/postgresql/) |
 
-#### GCP Cloud SQL
-
-```bash
-gcloud sql instances create mcpx-db \
-  --database-version=POSTGRES_15 \
-  --tier=db-f1-micro \
-  --region=us-central1 \
-  --root-password=YOUR_SECURE_PASSWORD
-```
-
-#### Azure Database
-
-```bash
-az postgres server create \
-  --resource-group mcpx-rg \
-  --name mcpx-db \
-  --location eastus \
-  --admin-user postgres \
-  --admin-password YOUR_SECURE_PASSWORD \
-  --sku-name B_Gen5_1
-```
+> **Sizing e Capacity**: Siga as instruções de setup do seu provider, considerando aspectos de sizing e capacity. Do ponto de vista do mcpx, o dimensionamento depende de:
+> - **Throughput**: Número de requisições MCP por segundo
+> - **Retenção**: Tempo de retenção de métricas, logs e audit trail
+> - **Performance**: Latência desejada nas consultas
+> - **Número de usuários e servidores MCP**: Escala da instalação
+>
+> Recomendamos começar com uma instância menor e escalar conforme a demanda.
 
 ### Step 2: Configure Secrets Management
 
