@@ -360,13 +360,26 @@ flowchart TB
 
 ### Step 1: Set Up Managed Database
 
-Utilize o serviço de PostgreSQL gerenciado do seu cloud provider:
+O mcpx utiliza **TimescaleDB** (extensão PostgreSQL para time-series) para métricas e logs. Verifique a disponibilidade no seu provider:
 
-| Provider | Serviço | Documentação |
-|----------|---------|--------------|
-| AWS | RDS for PostgreSQL | [docs](https://docs.aws.amazon.com/rds/latest/userguide/CHAP_PostgreSQL.html) |
-| GCP | Cloud SQL for PostgreSQL | [docs](https://cloud.google.com/sql/docs/postgres) |
-| Azure | Azure Database for PostgreSQL | [docs](https://learn.microsoft.com/azure/postgresql/) |
+| Provider | PostgreSQL Gerenciado | TimescaleDB Nativo |
+|----------|----------------------|-------------------|
+| AWS | RDS for PostgreSQL | ❌ Não suportado |
+| GCP | Cloud SQL for PostgreSQL | ❌ Não suportado |
+| Azure | Azure Database for PostgreSQL (Flexible Server) | ✅ [Suportado](https://learn.microsoft.com/azure/postgresql/flexible-server/concepts-extensions) |
+
+#### Opções para AWS e GCP
+
+Como AWS RDS e GCP Cloud SQL não suportam TimescaleDB nativamente, você tem as seguintes opções:
+
+1. **Tiger Data Cloud (antigo Timescale Cloud)** - Recomendado
+   - PostgreSQL gerenciado com TimescaleDB nativo
+   - Disponível em AWS, GCP e Azure
+   - [tigerdata.com/cloud](https://tigerdata.com/cloud)
+
+2. **Self-managed** - Rodar PostgreSQL + TimescaleDB em VMs ou containers Kubernetes
+
+3. **Azure PostgreSQL Flexible Server** - Único managed service dos big 3 que suporta TimescaleDB
 
 > **Sizing e Capacity**: Siga as instruções de setup do seu provider, considerando aspectos de sizing e capacity. Do ponto de vista do mcpx, o dimensionamento depende de:
 > - **Throughput**: Número de requisições MCP por segundo
