@@ -310,6 +310,25 @@ pub async fn create_gateway(
             .await;
     }
 
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::GATEWAY_CREATE,
+        crate::services::audit::resource_types::GATEWAY,
+        Some(row.id),
+        Some(&row.name),
+        Some(serde_json::json!({
+            "slug": &row.slug,
+            "enabled": row.enabled,
+            "servers": &payload.servers
+        })),
+        None,
+        None,
+    )
+    .await;
+
     Ok((
         StatusCode::CREATED,
         Json(GatewayResponse {
@@ -371,6 +390,24 @@ pub async fn update_gateway(
             )
         })?;
 
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::GATEWAY_UPDATE,
+        crate::services::audit::resource_types::GATEWAY,
+        Some(row.id),
+        Some(&row.name),
+        Some(serde_json::json!({
+            "slug": &row.slug,
+            "enabled": row.enabled
+        })),
+        None,
+        None,
+    )
+    .await;
+
     Ok(Json(GatewayResponse {
         id: row.id,
         name: row.name,
@@ -404,6 +441,21 @@ pub async fn delete_gateway(
                 format!("{}: {}", error::DATABASE_ERROR, e),
             )
         })?;
+
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::GATEWAY_DELETE,
+        crate::services::audit::resource_types::GATEWAY,
+        None,
+        Some(&slug),
+        None,
+        None,
+        None,
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

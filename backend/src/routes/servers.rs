@@ -251,6 +251,26 @@ pub async fn create_server(
     }
 
     let base_url = &state.config.base_url;
+
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::SERVER_CREATE,
+        crate::services::audit::resource_types::SERVER,
+        Some(server.id),
+        Some(&server.name),
+        Some(serde_json::json!({
+            "url": &server.url,
+            "transport": &server.transport,
+            "auth_type": &server.auth_type
+        })),
+        None,
+        None,
+    )
+    .await;
+
     Ok((
         StatusCode::CREATED,
         Json(ServerResponse::from_server(server, &org_slug, base_url)),
@@ -314,6 +334,24 @@ pub async fn update_server(
         .ok_or((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()))?;
 
     let base_url = &state.config.base_url;
+
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::SERVER_UPDATE,
+        crate::services::audit::resource_types::SERVER,
+        Some(server.id),
+        Some(&server.name),
+        Some(serde_json::json!({
+            "enabled": server.enabled
+        })),
+        None,
+        None,
+    )
+    .await;
+
     Ok(Json(ServerResponse::from_server(
         server, &org_slug, base_url,
     )))
@@ -344,6 +382,21 @@ pub async fn delete_server(
     if result.rows_affected() == 0 {
         return Err((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()));
     }
+
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::SERVER_DELETE,
+        crate::services::audit::resource_types::SERVER,
+        None,
+        Some(&name),
+        None,
+        None,
+        None,
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
