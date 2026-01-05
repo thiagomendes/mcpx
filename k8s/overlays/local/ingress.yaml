@@ -6,7 +6,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: mcpx.local
+  - host: mcpx.127.0.0.1.nip.io
     http:
       paths:
       - path: /api

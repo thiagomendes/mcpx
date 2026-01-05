@@ -6,6 +6,6 @@ metadata:
 data:
   DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/mcpx"
   RUST_LOG: "info"
-  FRONTEND_URL: "http://mcpx.local"
+  FRONTEND_URL: "http://mcpx.127.0.0.1.nip.io"
   BACKEND_URL: "http://mcpx-web:8080"
-  BASE_URL: "http://mcpx.local"
+  BASE_URL: "http://mcpx.127.0.0.1.nip.io"
