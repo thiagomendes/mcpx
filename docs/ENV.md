@@ -490,28 +490,9 @@ patches:
       name: mcpx-web
 ```
 
-### Step 4: Configure TLS with Let's Encrypt
+### Step 4: Deploy
 
-Create `k8s/overlays/production/cluster-issuer.yaml`:
-
-```yaml
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: your-email@example.com
-    privateKeySecretRef:
-      name: letsencrypt-prod
-    solvers:
-    - http01:
-        ingress:
-          class: nginx
-```
-
-### Step 5: Deploy
+> **TLS/SSL**: Managed Kubernetes services (EKS, GKE, AKS) provide native TLS termination through their load balancers (AWS ALB + ACM, GCP Cloud Load Balancing, Azure Application Gateway). No cert-manager required.
 
 ```bash
 # Apply production overlay
@@ -519,14 +500,13 @@ kubectl apply -k k8s/overlays/production
 
 # Verify
 kubectl get pods -n mcpx
-kubectl get certificate -n mcpx
 ```
 
 ### Production Checklist
 
 - [ ] Managed database with automated backups
 - [ ] Secrets stored in secrets manager (not in git)
-- [ ] TLS with Let's Encrypt or cloud-managed certificates
+- [ ] TLS via cloud provider (ALB + ACM, GCP managed certs, Azure App Gateway)
 - [ ] Horizontal Pod Autoscaler (HPA) configured
 - [ ] Resource limits set for all containers
 - [ ] Liveness and readiness probes configured
