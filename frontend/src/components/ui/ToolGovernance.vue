@@ -59,6 +59,7 @@
           name="filterMode" 
           value="allowlist" 
           v-model="filterMode"
+          @change="onFilterModeChange"
           class="w-4 h-4 text-green-500 bg-background-darker border-gray-600 focus:ring-green-500"
         />
         <span :class="['text-sm', filterMode === 'allowlist' ? 'text-green-400' : 'text-gray-400']">
@@ -74,6 +75,7 @@
           name="filterMode" 
           value="blocklist" 
           v-model="filterMode"
+          @change="onFilterModeChange"
           class="w-4 h-4 text-red-500 bg-background-darker border-gray-600 focus:ring-red-500"
         />
         <span :class="['text-sm', filterMode === 'blocklist' ? 'text-red-400' : 'text-gray-400']">
@@ -190,7 +192,6 @@ const saving = ref(false)
 const error = ref<string | null>(null)
 const success = ref<string | null>(null)
 const toolsList = ref<ToolInfo[]>([])
-const isLoading = ref(false)
 
 const hasConfig = computed(() => {
   return selectedTools.value.length > 0 || prefix.value.length > 0
@@ -222,12 +223,10 @@ const summaryTextClass = computed(() => {
   return filterMode.value === 'allowlist' ? 'text-green-400 text-sm' : 'text-red-400 text-sm'
 })
 
-watch(filterMode, () => {
-  // Don't clear when loading config from server
-  if (!isLoading.value) {
-    selectedTools.value = []
-  }
-})
+// Clear selected tools when user explicitly changes filter mode via UI
+function onFilterModeChange() {
+  selectedTools.value = []
+}
 
 watch(() => props.availableTools, (newTools) => {
   if (newTools) toolsList.value = newTools
@@ -238,7 +237,6 @@ onMounted(async () => {
 })
 
 async function loadConfig() {
-  isLoading.value = true
   try {
     const response = await api.get<GovernanceConfig>(`/servers/${props.serverName}/governance`)
     const config = response.data
@@ -263,8 +261,6 @@ async function loadConfig() {
     limitEnabled.value = false
     selectedTools.value = []
     prefix.value = ''
-  } finally {
-    isLoading.value = false
   }
 }
 
