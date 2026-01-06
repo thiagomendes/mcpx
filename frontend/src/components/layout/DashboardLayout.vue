@@ -61,6 +61,7 @@
               Request Logs
             </router-link>
             <router-link 
+              v-if="authStore.canAdmin"
               to="/logs/audit" 
               class="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-background-hover transition-colors text-sm"
               active-class="!text-white !bg-background-hover"

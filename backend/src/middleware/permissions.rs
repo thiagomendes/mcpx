@@ -34,6 +34,9 @@ pub enum Permission {
     SettingsRead,
     SettingsWrite,
 
+    // Audit Logs
+    AuditLogsRead,
+
     // Organization
     OrgDelete,
 }
@@ -56,7 +59,7 @@ pub fn allowed_roles(permission: Permission) -> &'static [&'static str] {
 
         // Write: owner + admin
         ServersWrite | GatewaysWrite | TokensWrite | ServiceAccountsWrite | MembersInvite
-        | MembersRemove | SettingsWrite => WRITE_ROLES,
+        | MembersRemove | SettingsWrite | AuditLogsRead => WRITE_ROLES,
 
         // Owner only
         MembersChangeRole | OrgDelete => OWNER_ONLY,

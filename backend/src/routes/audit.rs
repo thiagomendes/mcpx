@@ -22,6 +22,9 @@ pub async fn list_audit_logs(
     auth: AuthUser,
     Query(query): Query<AuditLogQuery>,
 ) -> Result<Json<AuditLogListResponse>, (StatusCode, String)> {
+    // Check permission - owner/admin only
+    auth.require(crate::middleware::permissions::Permission::AuditLogsRead)?;
+
     let org_id = auth.org_id;
 
     let response = audit::list_audit_logs(&state.db.pool, org_id, query)
@@ -43,6 +46,9 @@ pub async fn get_audit_log(
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<AuditLogDetail>, (StatusCode, String)> {
+    // Check permission - owner/admin only
+    auth.require(crate::middleware::permissions::Permission::AuditLogsRead)?;
+
     let org_id = auth.org_id;
 
     let log = audit::get_audit_log(&state.db.pool, org_id, id)
