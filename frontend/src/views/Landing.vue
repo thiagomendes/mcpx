@@ -38,7 +38,7 @@
 
         <p class="text-xl md:text-2xl text-gray-400 max-w-3xl mx-auto mb-12 animate-fade-in-up animation-delay-200">
           Bridge the gap between AI agents and your data. 
-          <span class="text-white">Secure, scalable, ready for production.</span>
+          <span class="text-white">Secure, scalable, production-grade.</span>
         </p>
 
         <!-- CTA Button -->
