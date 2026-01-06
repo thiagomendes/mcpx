@@ -10,8 +10,9 @@
     <main class="flex-1 flex items-center">
       <div class="max-w-7xl mx-auto px-4 py-20 text-center">
         <!-- Logo -->
-        <div class="flex justify-center mb-8">
+        <div class="flex flex-col items-center mb-8">
           <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-24 h-24 object-contain" />
+          <span class="text-2xl font-bold text-gradient mt-2">mcpx</span>
         </div>
         <h1 class="text-5xl md:text-6xl font-bold mb-6">
           <span class="text-gradient">The Production-Ready</span>
