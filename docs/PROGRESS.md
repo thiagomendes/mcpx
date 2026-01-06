@@ -317,10 +317,20 @@ Dashboard API agora aceita 3 tipos de token:
 - [x] Usa refresh_token quando access_token expira
 - [x] Atualiza banco com novo token automaticamente
 
-### Rate Limiting
-- [ ] Contador por janela de tempo
-- [ ] Middleware de limitação
-- [ ] (Considerar PostgreSQL em vez de Redis)
+### Rate Limiting ✅
+**Status:** ✅ **COMPLETO**
+
+Per-server rate limiting com cache in-memory:
+- [x] `rate_limit_per_minute` coluna na tabela servers (NULL = ilimitado)
+- [x] `RateLimiterService` com DashMap e janela de 60s
+- [x] Proxy retorna 429 com `retry_after` quando limite excedido
+- [x] UI: campo no formulário de criação e edição de server
+
+**Arquitetura:**
+- Cache: DashMap in-memory (não precisa Redis)
+- Window: Fixed 60 segundos
+- Default: NULL (sem limite)
+
 
 ### Test Coverage Improvement
 - [ ] Atingir 90% de cobertura

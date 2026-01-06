@@ -318,6 +318,7 @@ async fn handle_server_proxy(
         .rate_limiter
         .check_and_increment(server.org_id, server.id, &server.name, server.rate_limit_per_minute)
         .map_err(|e| {
+            tracing::warn!("Rate limit exceeded: server={}, limit={}", server.name, e.limit);
             (
                 StatusCode::TOO_MANY_REQUESTS,
                 serde_json::json!({
@@ -1081,6 +1082,22 @@ async fn handle_gateway_tools_call(
             server.name,
             original_tool_name
         );
+
+        // Check rate limit for this server (if configured)
+        state
+            .rate_limiter
+            .check_and_increment(server.org_id, server.id, &server.name, server.rate_limit_per_minute)
+            .map_err(|e| {
+                tracing::warn!("Rate limit exceeded via gateway: server={}, limit={}", server.name, e.limit);
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    serde_json::json!({
+                        "error": "rate_limit_exceeded",
+                        "message": e.to_string(),
+                        "retry_after": e.retry_after
+                    }).to_string(),
+                )
+            })?;
 
         // Found the right server - forward the request
         let mut modified_request = request.clone();
