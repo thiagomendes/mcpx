@@ -8,7 +8,7 @@
           <span class="text-2xl font-bold text-gradient">mcpx</span>
         </div>
 
-        <h1 class="text-2xl font-bold mb-2">Welcome back</h1>
+        <h1 class="text-2xl font-bold mb-2">Sign In</h1>
         <p class="text-gray-400 mb-8">Sign in to manage your MCP servers</p>
 
         <!-- Identity Provider Buttons -->
