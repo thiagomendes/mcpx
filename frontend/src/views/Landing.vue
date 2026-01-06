@@ -14,13 +14,13 @@
     <main class="flex-1 flex items-center">
       <div class="max-w-7xl mx-auto px-4 py-20 text-center">
         <h1 class="text-5xl md:text-6xl font-bold mb-6">
-          <span class="text-gradient">MCP Gateway</span>
+          <span class="text-gradient">The Production-Ready</span>
           <br />
-          <span class="text-white">for Production</span>
+          <span class="text-white">MCP Gateway</span>
         </h1>
         <p class="text-xl text-gray-400 max-w-2xl mx-auto mb-10">
-          Manage, govern, and observe your MCP servers at scale. 
-          No infrastructure expertise required.
+          Bridge the gap between AI agents and your data. 
+          Secure, scalable, ready for production.
         </p>
         <div class="flex gap-4 justify-center">
           <router-link to="/login" class="btn btn-primary px-8 py-3 text-lg">
