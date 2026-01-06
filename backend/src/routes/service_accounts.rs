@@ -382,6 +382,21 @@ pub async fn delete_service_account(
 
     let org_id = auth.org_id;
 
+    // Fetch account details before deletion for audit log
+    let account: Option<ServiceAccountRow> = sqlx::query_as(
+        "SELECT id, name, description, client_id, scopes, enabled, last_used_at, created_at FROM service_accounts WHERE id = $1 AND org_id = $2"
+    )
+        .bind(account_id)
+        .bind(org_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
+
     let result = sqlx::query(SQL_DELETE_SERVICE_ACCOUNT)
         .bind(account_id)
         .bind(org_id)
@@ -401,7 +416,7 @@ pub async fn delete_service_account(
         ));
     }
 
-    // Record audit log
+    // Record audit log with full account details
     let _ = crate::services::audit::record_audit_log(
         &state.db.pool,
         org_id,
@@ -409,8 +424,12 @@ pub async fn delete_service_account(
         crate::services::audit::actions::SERVICE_ACCOUNT_DELETE,
         crate::services::audit::resource_types::SERVICE_ACCOUNT,
         Some(account_id),
-        None,
-        None,
+        account.as_ref().map(|a| a.name.as_str()),
+        account.as_ref().map(|a| serde_json::json!({
+            "client_id": &a.client_id,
+            "scopes": &a.scopes,
+            "enabled": a.enabled
+        })),
         None,
         None,
     )
