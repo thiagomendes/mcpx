@@ -1,56 +1,47 @@
 //! Audit Service
 //!
-//! Records and queries detailed MCP request/response logs
+//! Records and queries admin/user action audit trail
+//! Tracks WHO did WHAT, WHEN for security and compliance
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-/// Record an audit log entry
-#[allow(clippy::too_many_arguments)]
+/// Record an audit log entry for admin actions
 pub async fn record_audit_log(
     pool: &PgPool,
     org_id: Uuid,
-    target_type: &str,
-    target_id: Uuid,
-    target_name: &str,
-    method: Option<&str>,
-    tool_name: Option<&str>,
-    request_body: Option<serde_json::Value>,
-    response_body: Option<serde_json::Value>,
-    status_code: i32,
-    error_message: Option<&str>,
-    latency_ms: i32,
-    success: bool,
-    session_id: Option<&str>,
+    user_id: Option<Uuid>,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<Uuid>,
+    resource_name: Option<&str>,
+    details: Option<serde_json::Value>,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
 ) -> Result<Uuid, sqlx::Error> {
     let id = Uuid::new_v4();
 
     sqlx::query(
         r#"
-        INSERT INTO audit_logs (
-            id, time, org_id, target_type, target_id, target_name,
-            method, tool_name, request_body, response_body,
-            status_code, error_message, latency_ms, success, session_id
+        INSERT INTO admin_audit_logs (
+            id, org_id, user_id, action, resource_type, 
+            resource_id, resource_name, details, ip_address, user_agent
         )
-        VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#,
     )
     .bind(id)
     .bind(org_id)
-    .bind(target_type)
-    .bind(target_id)
-    .bind(target_name)
-    .bind(method)
-    .bind(tool_name)
-    .bind(request_body)
-    .bind(response_body)
-    .bind(status_code)
-    .bind(error_message)
-    .bind(latency_ms)
-    .bind(success)
-    .bind(session_id)
+    .bind(user_id)
+    .bind(action)
+    .bind(resource_type)
+    .bind(resource_id)
+    .bind(resource_name)
+    .bind(details)
+    .bind(ip_address)
+    .bind(user_agent)
     .execute(pool)
     .await?;
 
@@ -61,45 +52,40 @@ pub async fn record_audit_log(
 pub struct AuditLogEntry {
     pub id: Uuid,
     pub time: DateTime<Utc>,
-    pub target_type: String,
-    pub target_id: Uuid,
-    pub target_name: String,
-    pub method: Option<String>,
-    pub tool_name: Option<String>,
-    pub status_code: Option<i32>,
-    pub latency_ms: Option<i32>,
-    pub success: bool,
-    pub error_message: Option<String>,
+    pub user_id: Option<Uuid>,
+    pub user_name: Option<String>,
+    pub user_email: Option<String>,
+    pub action: String,
+    pub resource_type: String,
+    pub resource_id: Option<Uuid>,
+    pub resource_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct AuditLogDetail {
     pub id: Uuid,
     pub time: DateTime<Utc>,
-    pub target_type: String,
-    pub target_id: Uuid,
-    pub target_name: String,
-    pub method: Option<String>,
-    pub tool_name: Option<String>,
-    pub request_body: Option<serde_json::Value>,
-    pub response_body: Option<serde_json::Value>,
-    pub status_code: Option<i32>,
-    pub error_message: Option<String>,
-    pub latency_ms: Option<i32>,
-    pub success: bool,
-    pub session_id: Option<String>,
+    pub user_id: Option<Uuid>,
+    pub user_name: Option<String>,
+    pub user_email: Option<String>,
+    pub action: String,
+    pub resource_type: String,
+    pub resource_id: Option<Uuid>,
+    pub resource_name: Option<String>,
+    pub details: Option<serde_json::Value>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct AuditQuery {
+pub struct AuditLogQuery {
     #[serde(default = "default_limit")]
     pub limit: i32,
     #[serde(default)]
     pub offset: i32,
-    pub target_name: Option<String>,
-    pub method: Option<String>,
-    pub tool_name: Option<String>,
-    pub success: Option<bool>,
+    pub action: Option<String>,
+    pub resource_type: Option<String>,
+    pub user_id: Option<Uuid>,
     pub hours: Option<f64>,
 }
 
@@ -108,7 +94,7 @@ fn default_limit() -> i32 {
 }
 
 #[derive(Debug, Serialize)]
-pub struct AuditListResponse {
+pub struct AuditLogListResponse {
     pub data: Vec<AuditLogEntry>,
     pub total: i64,
     pub limit: i32,
@@ -119,70 +105,64 @@ pub struct AuditListResponse {
 type AuditListDbRow = (
     Uuid,
     DateTime<Utc>,
+    Option<Uuid>,
     String,
-    Uuid,
     String,
+    Option<Uuid>,
     Option<String>,
-    Option<String>,
-    Option<i32>,
-    Option<i32>,
-    bool,
-    Option<String>,
+    Option<String>,  // user_name
+    Option<String>,  // user_email
 );
+
 type AuditDetailDbRow = (
     Uuid,
     DateTime<Utc>,
+    Option<Uuid>,
     String,
-    Uuid,
     String,
-    Option<String>,
+    Option<Uuid>,
     Option<String>,
     Option<serde_json::Value>,
-    Option<serde_json::Value>,
-    Option<i32>,
     Option<String>,
-    Option<i32>,
-    bool,
     Option<String>,
+    Option<String>,  // user_name
+    Option<String>,  // user_email
 );
 
 /// List audit logs with pagination and filters
 pub async fn list_audit_logs(
     pool: &PgPool,
     org_id: Uuid,
-    query: AuditQuery,
-) -> Result<AuditListResponse, sqlx::Error> {
-    let hours = query.hours.unwrap_or(24.0);
-    let limit = query.limit.min(100); // Max 100 per page
+    query: AuditLogQuery,
+) -> Result<AuditLogListResponse, sqlx::Error> {
+    let hours = query.hours.unwrap_or(168.0); // Default 7 days
+    let limit = query.limit.min(100);
     let offset = query.offset;
 
-    // Build WHERE clause
+    // Build WHERE clause (using 'a.' alias for the main table)
     let mut conditions = vec![
-        "org_id = $1".to_string(),
-        format!("time >= NOW() - INTERVAL '{} hours'", hours),
+        "a.org_id = $1".to_string(),
+        format!("a.time >= NOW() - INTERVAL '{} hours'", hours),
     ];
 
-    if let Some(ref target_name) = query.target_name {
+    if let Some(ref action) = query.action {
+        conditions.push(format!("a.action = '{}'", action.replace('\'', "''")));
+    }
+    if let Some(ref resource_type) = query.resource_type {
         conditions.push(format!(
-            "target_name = '{}'",
-            target_name.replace('\'', "''")
+            "a.resource_type = '{}'",
+            resource_type.replace('\'', "''")
         ));
     }
-    if let Some(ref method) = query.method {
-        conditions.push(format!("method = '{}'", method.replace('\'', "''")));
-    }
-    if let Some(ref tool_name) = query.tool_name {
-        conditions.push(format!("tool_name = '{}'", tool_name.replace('\'', "''")));
-    }
-    if let Some(success) = query.success {
-        conditions.push(format!("success = {}", success));
+    if let Some(user_id) = query.user_id {
+        conditions.push(format!("a.user_id = '{}'", user_id));
     }
 
     let where_clause = conditions.join(" AND ");
 
     // Get total count
     let count_sql = format!(
-        "SELECT COUNT(*)::BIGINT FROM audit_logs WHERE {}",
+        "SELECT COUNT(*)::BIGINT FROM admin_audit_logs a WHERE {}",
         where_clause
     );
     let total: (i64,) = sqlx::query_as(&count_sql)
@@ -190,14 +170,15 @@ pub async fn list_audit_logs(
         .fetch_one(pool)
         .await?;
 
-    // Get paginated data
+    // Get paginated data with user info
     let data_sql = format!(
         r#"
-        SELECT id, time, target_type, target_id, target_name, 
-               method, tool_name, status_code, latency_ms, success, error_message
-        FROM audit_logs
+        SELECT a.id, a.time, a.user_id, a.action, a.resource_type, a.resource_id, a.resource_name,
+               u.name as user_name, u.email as user_email
+        FROM admin_audit_logs a
+        LEFT JOIN users u ON a.user_id = u.id
         WHERE {}
-        ORDER BY time DESC
+        ORDER BY a.time DESC
         LIMIT {} OFFSET {}
         "#,
         where_clause, limit, offset
@@ -213,19 +194,17 @@ pub async fn list_audit_logs(
         .map(|row| AuditLogEntry {
             id: row.0,
             time: row.1,
-            target_type: row.2,
-            target_id: row.3,
-            target_name: row.4,
-            method: row.5,
-            tool_name: row.6,
-            status_code: row.7,
-            latency_ms: row.8,
-            success: row.9,
-            error_message: row.10,
+            user_id: row.2,
+            action: row.3,
+            resource_type: row.4,
+            resource_id: row.5,
+            resource_name: row.6,
+            user_name: row.7,
+            user_email: row.8,
         })
         .collect();
 
-    Ok(AuditListResponse {
+    Ok(AuditLogListResponse {
         data,
         total: total.0,
         limit,
@@ -241,12 +220,13 @@ pub async fn get_audit_log(
 ) -> Result<Option<AuditLogDetail>, sqlx::Error> {
     let row: Option<AuditDetailDbRow> = sqlx::query_as(
         r#"
-            SELECT id, time, target_type, target_id, target_name,
-                   method, tool_name, request_body, response_body,
-                   status_code, error_message, latency_ms, success, session_id
-            FROM audit_logs
-            WHERE id = $1 AND org_id = $2
-            "#,
+        SELECT a.id, a.time, a.user_id, a.action, a.resource_type, 
+               a.resource_id, a.resource_name, a.details, a.ip_address, a.user_agent,
+               u.name as user_name, u.email as user_email
+        FROM admin_audit_logs a
+        LEFT JOIN users u ON a.user_id = u.id
+        WHERE a.id = $1 AND a.org_id = $2
+        "#,
     )
     .bind(log_id)
     .bind(org_id)
@@ -256,17 +236,67 @@ pub async fn get_audit_log(
     Ok(row.map(|r| AuditLogDetail {
         id: r.0,
         time: r.1,
-        target_type: r.2,
-        target_id: r.3,
-        target_name: r.4,
-        method: r.5,
-        tool_name: r.6,
-        request_body: r.7,
-        response_body: r.8,
-        status_code: r.9,
-        error_message: r.10,
-        latency_ms: r.11,
-        success: r.12,
-        session_id: r.13,
+        user_id: r.2,
+        action: r.3,
+        resource_type: r.4,
+        resource_id: r.5,
+        resource_name: r.6,
+        details: r.7,
+        ip_address: r.8,
+        user_agent: r.9,
+        user_name: r.10,
+        user_email: r.11,
     }))
+}
+
+// ============================================================================
+// Action Constants
+// ============================================================================
+
+pub mod actions {
+    // Server actions
+    pub const SERVER_CREATE: &str = "server.create";
+    pub const SERVER_UPDATE: &str = "server.update";
+    pub const SERVER_DELETE: &str = "server.delete";
+
+    // Gateway actions
+    pub const GATEWAY_CREATE: &str = "gateway.create";
+    pub const GATEWAY_UPDATE: &str = "gateway.update";
+    pub const GATEWAY_DELETE: &str = "gateway.delete";
+    pub const GATEWAY_ADD_SERVER: &str = "gateway.add_server";
+    pub const GATEWAY_REMOVE_SERVER: &str = "gateway.remove_server";
+
+    // User actions
+    pub const USER_LOGIN: &str = "user.login";
+    pub const USER_LOGOUT: &str = "user.logout";
+
+    // Org actions
+    pub const ORG_MEMBER_ADD: &str = "org.member.add";
+    pub const ORG_MEMBER_REMOVE: &str = "org.member.remove";
+
+    // Token actions
+    pub const TOKEN_CREATE: &str = "token.create";
+    pub const TOKEN_DELETE: &str = "token.delete";
+
+    // Service account actions
+    pub const SERVICE_ACCOUNT_CREATE: &str = "service_account.create";
+    pub const SERVICE_ACCOUNT_DELETE: &str = "service_account.delete";
+
+    // Governance actions
+    pub const GOVERNANCE_UPDATE: &str = "governance.update";
+    pub const GOVERNANCE_DELETE: &str = "governance.delete";
+}
+
+// ============================================================================
+// Resource Types
+// ============================================================================
+
+pub mod resource_types {
+    pub const SERVER: &str = "server";
+    pub const GATEWAY: &str = "gateway";
+    pub const USER: &str = "user";
+    pub const ORG: &str = "org";
+    pub const TOKEN: &str = "token";
+    pub const SERVICE_ACCOUNT: &str = "service_account";
+    pub const GOVERNANCE: &str = "governance";
 }

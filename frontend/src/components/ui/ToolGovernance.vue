@@ -59,6 +59,7 @@
           name="filterMode" 
           value="allowlist" 
           v-model="filterMode"
+          @change="onFilterModeChange"
           class="w-4 h-4 text-green-500 bg-background-darker border-gray-600 focus:ring-green-500"
         />
         <span :class="['text-sm', filterMode === 'allowlist' ? 'text-green-400' : 'text-gray-400']">
@@ -74,6 +75,7 @@
           name="filterMode" 
           value="blocklist" 
           v-model="filterMode"
+          @change="onFilterModeChange"
           class="w-4 h-4 text-red-500 bg-background-darker border-gray-600 focus:ring-red-500"
         />
         <span :class="['text-sm', filterMode === 'blocklist' ? 'text-red-400' : 'text-gray-400']">
@@ -221,9 +223,10 @@ const summaryTextClass = computed(() => {
   return filterMode.value === 'allowlist' ? 'text-green-400 text-sm' : 'text-red-400 text-sm'
 })
 
-watch(filterMode, () => {
+// Clear selected tools when user explicitly changes filter mode via UI
+function onFilterModeChange() {
   selectedTools.value = []
-})
+}
 
 watch(() => props.availableTools, (newTools) => {
   if (newTools) toolsList.value = newTools
@@ -241,13 +244,15 @@ async function loadConfig() {
     prefix.value = config.tool_prefix || ''
     
     if (config.allowed_tools.length > 0) {
-      limitEnabled.value = true
-      filterMode.value = 'allowlist'
+      // Set selectedTools BEFORE filterMode to avoid watcher clearing them
       selectedTools.value = config.allowed_tools
-    } else if (config.denied_tools.length > 0) {
+      filterMode.value = 'allowlist'
       limitEnabled.value = true
-      filterMode.value = 'blocklist'
+    } else if (config.denied_tools.length > 0) {
+      // Set selectedTools BEFORE filterMode to avoid watcher clearing them
       selectedTools.value = config.denied_tools
+      filterMode.value = 'blocklist'
+      limitEnabled.value = true
     } else {
       limitEnabled.value = false
       selectedTools.value = []

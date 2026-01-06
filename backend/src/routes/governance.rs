@@ -182,6 +182,25 @@ pub async fn set_governance(
             )
         })?;
 
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::GOVERNANCE_UPDATE,
+        crate::services::audit::resource_types::GOVERNANCE,
+        Some(config.id),
+        Some(&name),
+        Some(serde_json::json!({
+            "allowed_tools": &payload.allowed_tools,
+            "denied_tools": &payload.denied_tools,
+            "tool_prefix": &payload.tool_prefix
+        })),
+        None,
+        None,
+    )
+    .await;
+
     Ok((
         StatusCode::OK,
         Json(GovernanceResponse {
@@ -213,6 +232,21 @@ pub async fn delete_governance(
                 format!("{}: {}", error::DATABASE_ERROR, e),
             )
         })?;
+
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::GOVERNANCE_DELETE,
+        crate::services::audit::resource_types::GOVERNANCE,
+        Some(server_id),
+        Some(&name),
+        None,
+        None,
+        None,
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

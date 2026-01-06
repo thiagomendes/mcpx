@@ -5,53 +5,50 @@ import api from '@/api/client'
 export interface AuditLogEntry {
     id: string
     time: string
-    target_type: string
-    target_id: string
-    target_name: string
-    method: string | null
-    tool_name: string | null
-    status_code: number | null
-    latency_ms: number | null
-    success: boolean
-    error_message: string | null
+    user_id: string | null
+    user_name: string | null
+    user_email: string | null
+    action: string
+    resource_type: string
+    resource_id: string | null
+    resource_name: string | null
 }
 
 export interface AuditLogDetail extends AuditLogEntry {
-    request_body: object | null
-    response_body: object | null
-    session_id: string | null
+    details: object | null
+    ip_address: string | null
+    user_agent: string | null
 }
 
-export interface AuditListResponse {
+export interface AuditLogListResponse {
     data: AuditLogEntry[]
     total: number
     limit: number
     offset: number
 }
 
-export interface AuditFilters {
-    target_name?: string
-    method?: string
-    tool_name?: string
-    success?: boolean
+export interface AuditLogFilters {
+    action?: string
+    resource_type?: string
+    user_id?: string
     hours?: number
     limit?: number
     offset?: number
 }
 
-export const useAuditStore = defineStore('audit', () => {
+export const useAuditLogsStore = defineStore('auditLogs', () => {
     const logs = ref<AuditLogEntry[]>([])
     const selectedLog = ref<AuditLogDetail | null>(null)
     const total = ref(0)
     const loading = ref(false)
     const error = ref<string | null>(null)
-    const currentFilters = ref<AuditFilters>({
-        hours: 24,
+    const currentFilters = ref<AuditLogFilters>({
+        hours: 168, // 7 days
         limit: 50,
         offset: 0,
     })
 
-    async function fetchLogs(filters?: AuditFilters) {
+    async function fetchLogs(filters?: AuditLogFilters) {
         loading.value = true
         error.value = null
 
@@ -60,15 +57,14 @@ export const useAuditStore = defineStore('audit', () => {
 
         try {
             const queryParams = new URLSearchParams()
-            if (params.target_name) queryParams.append('target_name', params.target_name)
-            if (params.method) queryParams.append('method', params.method)
-            if (params.tool_name) queryParams.append('tool_name', params.tool_name)
-            if (params.success !== undefined) queryParams.append('success', String(params.success))
+            if (params.action) queryParams.append('action', params.action)
+            if (params.resource_type) queryParams.append('resource_type', params.resource_type)
+            if (params.user_id) queryParams.append('user_id', params.user_id)
             if (params.hours) queryParams.append('hours', String(params.hours))
             if (params.limit) queryParams.append('limit', String(params.limit))
             if (params.offset) queryParams.append('offset', String(params.offset))
 
-            const response = await api.get<AuditListResponse>(`/audit?${queryParams.toString()}`)
+            const response = await api.get<AuditLogListResponse>(`/audit-logs?${queryParams.toString()}`)
             logs.value = response.data.data
             total.value = response.data.total
         } catch {
@@ -85,7 +81,7 @@ export const useAuditStore = defineStore('audit', () => {
         error.value = null
 
         try {
-            const response = await api.get<AuditLogDetail>(`/audit/${id}`)
+            const response = await api.get<AuditLogDetail>(`/audit-logs/${id}`)
             selectedLog.value = response.data
         } catch {
             error.value = 'Failed to fetch log details'
@@ -111,6 +107,11 @@ export const useAuditStore = defineStore('audit', () => {
         selectedLog.value = null
     }
 
+    // Helper function to format action
+    function formatAction(action: string): string {
+        return action.replace('.', ' → ')
+    }
+
     return {
         logs,
         selectedLog,
@@ -123,5 +124,6 @@ export const useAuditStore = defineStore('audit', () => {
         nextPage,
         prevPage,
         clearSelection,
+        formatAction,
     }
 })

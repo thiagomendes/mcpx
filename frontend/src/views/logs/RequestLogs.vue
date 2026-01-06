@@ -2,7 +2,7 @@
   <DashboardLayout>
     <div class="flex items-center justify-between mb-8">
       <div>
-        <h1 class="text-2xl font-bold mb-2">Audit Logs</h1>
+        <h1 class="text-2xl font-bold mb-2">Request Logs</h1>
         <p class="text-gray-400">Detailed history of all MCP requests</p>
       </div>
       <div class="flex items-center gap-4">
@@ -95,13 +95,14 @@
       <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/20 flex items-center justify-center">
         <ClipboardDocumentListIcon class="w-8 h-8 text-primary" />
       </div>
-      <h3 class="text-lg font-semibold mb-2">No audit logs found</h3>
+      <h3 class="text-lg font-semibold mb-2">No request logs found</h3>
       <p class="text-gray-400">Make some MCP requests to start seeing logs here</p>
     </div>
 
     <!-- Logs Table -->
     <div v-else class="card overflow-hidden p-0">
-      <table class="w-full">
+      <div class="overflow-x-auto">
+      <table class="w-full min-w-[800px]">
         <thead>
           <tr class="border-b border-border bg-background-card">
             <th class="text-left text-xs font-semibold uppercase text-gray-400 px-4 py-3">Time</th>
@@ -173,6 +174,7 @@
           </tr>
         </tbody>
       </table>
+      </div>
 
       <!-- Pagination -->
       <div class="flex items-center justify-between px-4 py-3 border-t border-border">
@@ -262,7 +264,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, computed, ref, watch } from 'vue'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
-import { useAuditStore } from '@/stores/audit'
+import { useRequestLogsStore } from '@/stores/requestLogs'
 import { 
   ClockIcon, 
   CheckCircleIcon, 
@@ -275,7 +277,7 @@ import {
   ArrowPathIcon,
 } from '@heroicons/vue/24/outline'
 
-const store = useAuditStore()
+const store = useRequestLogsStore()
 
 // Filters
 const filterTargetName = ref('')
@@ -336,12 +338,12 @@ function formatMethod(method: string | null): string {
 }
 
 // Auto-refresh
-const autoRefresh = ref(localStorage.getItem('mcpx_audit_autorefresh') === 'true')
+const autoRefresh = ref(localStorage.getItem('mcpx_request_logs_autorefresh') === 'true')
 const countdown = ref(60)
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
-watch(autoRefresh, (val) => localStorage.setItem('mcpx_audit_autorefresh', String(val)))
+watch(autoRefresh, (val) => localStorage.setItem('mcpx_request_logs_autorefresh', String(val)))
 
 function toggleAutoRefresh() {
   autoRefresh.value = !autoRefresh.value

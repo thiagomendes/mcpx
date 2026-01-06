@@ -242,12 +242,23 @@ pub async fn create_token(
             )
         })?;
 
-    // Log audit event
-    tracing::info!(
-        user_id = %user_id,
-        token_name = %payload.name,
-        "PAT created"
-    );
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(user_id),
+        crate::services::audit::actions::TOKEN_CREATE,
+        crate::services::audit::resource_types::TOKEN,
+        Some(row.id),
+        Some(&payload.name),
+        Some(serde_json::json!({
+            "scopes": &payload.scopes,
+            "expires_in_days": payload.expires_in_days
+        })),
+        None,
+        None,
+    )
+    .await;
 
     Ok(Json(PatCreatedResponse {
         id: row.id,
@@ -271,6 +282,22 @@ pub async fn delete_token(
     let user_id = auth.user_id;
     let org_id = auth.org_id;
 
+    // Fetch token details before deletion for audit log
+    let token: Option<PatRow> = sqlx::query_as(
+        "SELECT id, name, token_prefix, scopes, last_used_at, expires_at, created_at FROM personal_access_tokens WHERE id = $1 AND user_id = $2 AND org_id = $3"
+    )
+        .bind(token_id)
+        .bind(user_id)
+        .bind(org_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
+
     let result = sqlx::query(SQL_DELETE_PAT)
         .bind(token_id)
         .bind(user_id)
@@ -288,11 +315,23 @@ pub async fn delete_token(
         return Err((StatusCode::NOT_FOUND, "Token not found".to_string()));
     }
 
-    tracing::info!(
-        user_id = %user_id,
-        token_id = %token_id,
-        "PAT revoked"
-    );
+    // Record audit log with full token details
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(user_id),
+        crate::services::audit::actions::TOKEN_DELETE,
+        crate::services::audit::resource_types::TOKEN,
+        Some(token_id),
+        token.as_ref().map(|t| t.name.as_str()),
+        token.as_ref().map(|t| serde_json::json!({
+            "token_prefix": &t.token_prefix,
+            "scopes": &t.scopes
+        })),
+        None,
+        None,
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

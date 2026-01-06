@@ -1,6 +1,6 @@
-//! Audit API Routes
+//! Audit Logs API Routes
 //!
-//! Exposes audit logs via REST API
+//! Exposes admin/user action audit trail via REST API
 
 use axum::{
     extract::{Path, Query, State},
@@ -12,16 +12,19 @@ use uuid::Uuid;
 
 use crate::messages::error;
 use crate::middleware::auth::AuthUser;
-use crate::services::audit::{self, AuditListResponse, AuditLogDetail, AuditQuery};
+use crate::services::audit::{self, AuditLogListResponse, AuditLogDetail, AuditLogQuery};
 use crate::AppState;
 
-/// GET /api/audit
+/// GET /api/audit-logs
 /// List audit logs with pagination and filters
 pub async fn list_audit_logs(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-    Query(query): Query<AuditQuery>,
-) -> Result<Json<AuditListResponse>, (StatusCode, String)> {
+    Query(query): Query<AuditLogQuery>,
+) -> Result<Json<AuditLogListResponse>, (StatusCode, String)> {
+    // Check permission - owner/admin only
+    auth.require(crate::middleware::permissions::Permission::AuditLogsRead)?;
+
     let org_id = auth.org_id;
 
     let response = audit::list_audit_logs(&state.db.pool, org_id, query)
@@ -36,13 +39,16 @@ pub async fn list_audit_logs(
     Ok(Json(response))
 }
 
-/// GET /api/audit/:id
+/// GET /api/audit-logs/:id
 /// Get audit log detail by ID
 pub async fn get_audit_log(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<AuditLogDetail>, (StatusCode, String)> {
+    // Check permission - owner/admin only
+    auth.require(crate::middleware::permissions::Permission::AuditLogsRead)?;
+
     let org_id = auth.org_id;
 
     let log = audit::get_audit_log(&state.db.pool, org_id, id)

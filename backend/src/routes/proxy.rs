@@ -419,7 +419,7 @@ async fn handle_server_proxy(
             };
 
             // Record audit log with full request/response
-            if let Err(e) = crate::services::audit::record_audit_log(
+            if let Err(e) = crate::services::request_logs::record_request_log(
                 &state.db.pool,
                 server.org_id,
                 "server",
@@ -470,7 +470,7 @@ async fn handle_server_proxy(
         }
         Err(msg) => {
             // Record audit log for error case
-            if let Err(e) = crate::services::audit::record_audit_log(
+            if let Err(e) = crate::services::request_logs::record_request_log(
                 &state.db.pool,
                 server.org_id,
                 "server",
@@ -763,7 +763,7 @@ async fn handle_gateway_proxy(
             };
 
             // Record audit log with full request/response
-            if let Err(e) = crate::services::audit::record_audit_log(
+            if let Err(e) = crate::services::request_logs::record_request_log(
                 &state.db.pool,
                 org_id,
                 "gateway",
@@ -808,7 +808,7 @@ async fn handle_gateway_proxy(
         }
         Err((status, msg)) => {
             // Record audit log for error case
-            if let Err(e) = crate::services::audit::record_audit_log(
+            if let Err(e) = crate::services::request_logs::record_request_log(
                 &state.db.pool,
                 org_id,
                 "gateway",

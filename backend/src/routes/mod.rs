@@ -10,6 +10,7 @@ pub mod oauth;
 pub mod orgs;
 pub mod pat;
 pub mod proxy;
+pub mod request_logs;
 pub mod servers;
 pub mod service_accounts;
 pub mod settings;

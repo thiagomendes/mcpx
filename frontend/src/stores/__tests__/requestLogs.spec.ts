@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useAuditStore } from '@/stores/audit'
+import { useRequestLogsStore } from '@/stores/requestLogs'
 import api from '@/api/client'
 
 vi.mock('@/api/client', () => ({
@@ -9,7 +9,7 @@ vi.mock('@/api/client', () => ({
     },
 }))
 
-describe('Audit Store', () => {
+describe('Request Logs Store', () => {
     beforeEach(() => {
         setActivePinia(createPinia())
         vi.clearAllMocks()
@@ -17,7 +17,7 @@ describe('Audit Store', () => {
 
     describe('initial state', () => {
         it('starts with default values', () => {
-            const store = useAuditStore()
+            const store = useRequestLogsStore()
             expect(store.logs).toEqual([])
             expect(store.selectedLog).toBeNull()
             expect(store.total).toBe(0)
@@ -55,10 +55,10 @@ describe('Audit Store', () => {
             }
             vi.mocked(api.get).mockResolvedValue({ data: mockResponse })
 
-            const store = useAuditStore()
+            const store = useRequestLogsStore()
             await store.fetchLogs()
 
-            expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/audit?'))
+            expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/request-logs?'))
             expect(store.logs).toEqual(mockResponse.data)
             expect(store.total).toBe(1)
             expect(store.loading).toBe(false)
@@ -68,7 +68,7 @@ describe('Audit Store', () => {
             const mockResponse = { data: [], total: 0, limit: 50, offset: 0 }
             vi.mocked(api.get).mockResolvedValue({ data: mockResponse })
 
-            const store = useAuditStore()
+            const store = useRequestLogsStore()
             await store.fetchLogs({
                 target_name: 'server-1',
                 method: 'tools/call',
@@ -84,10 +84,10 @@ describe('Audit Store', () => {
         it('handles fetch error', async () => {
             vi.mocked(api.get).mockRejectedValue(new Error('Network error'))
 
-            const store = useAuditStore()
+            const store = useRequestLogsStore()
             await store.fetchLogs()
 
-            expect(store.error).toBe('Failed to fetch audit logs')
+            expect(store.error).toBe('Failed to fetch request logs')
             expect(store.logs).toEqual([])
             expect(store.total).toBe(0)
         })
@@ -113,10 +113,10 @@ describe('Audit Store', () => {
             }
             vi.mocked(api.get).mockResolvedValue({ data: mockDetail })
 
-            const store = useAuditStore()
+            const store = useRequestLogsStore()
             await store.fetchLogDetail('1')
 
-            expect(api.get).toHaveBeenCalledWith('/audit/1')
+            expect(api.get).toHaveBeenCalledWith('/request-logs/1')
             expect(store.selectedLog).toEqual(mockDetail)
             expect(store.loading).toBe(false)
         })
@@ -124,7 +124,7 @@ describe('Audit Store', () => {
         it('handles fetch detail error', async () => {
             vi.mocked(api.get).mockRejectedValue(new Error('Not found'))
 
-            const store = useAuditStore()
+            const store = useRequestLogsStore()
             await store.fetchLogDetail('999')
 
             expect(store.error).toBe('Failed to fetch log details')
@@ -154,7 +154,7 @@ describe('Audit Store', () => {
             }
             vi.mocked(api.get).mockResolvedValue({ data: mockResponse })
 
-            const store = useAuditStore()
+            const store = useRequestLogsStore()
             await store.fetchLogs()
             expect(store.total).toBe(100)
 
@@ -168,7 +168,7 @@ describe('Audit Store', () => {
             const mockResponse = { data: [], total: 100, limit: 50, offset: 0 }
             vi.mocked(api.get).mockResolvedValue({ data: mockResponse })
 
-            const store = useAuditStore()
+            const store = useRequestLogsStore()
             store.currentFilters.offset = 50
 
             store.prevPage()
@@ -181,7 +181,7 @@ describe('Audit Store', () => {
             const mockResponse = { data: [], total: 100, limit: 50, offset: 0 }
             vi.mocked(api.get).mockResolvedValue({ data: mockResponse })
 
-            const store = useAuditStore()
+            const store = useRequestLogsStore()
             store.currentFilters.offset = 0
 
             store.prevPage()
@@ -211,7 +211,7 @@ describe('Audit Store', () => {
             }
             vi.mocked(api.get).mockResolvedValue({ data: mockDetail })
 
-            const store = useAuditStore()
+            const store = useRequestLogsStore()
             await store.fetchLogDetail('1')
             expect(store.selectedLog).not.toBeNull()
 
