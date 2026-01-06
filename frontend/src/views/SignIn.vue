@@ -4,9 +4,7 @@
       <div class="card text-center">
         <!-- Logo -->
         <div class="flex items-center justify-center gap-3 mb-8">
-          <div class="w-12 h-12 bg-gradient-primary rounded-lg flex items-center justify-center">
-            <BoltIcon class="w-7 h-7 text-white" />
-          </div>
+          <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-12 h-12 object-contain" />
           <span class="text-2xl font-bold text-gradient">mcpx</span>
         </div>
 
@@ -43,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { BoltIcon, ArrowLeftIcon } from '@heroicons/vue/24/outline'
+import { ArrowLeftIcon } from '@heroicons/vue/24/outline'
 import { getEnabledProviders, loginWithProvider, type IdentityProviderType } from '@/lib/identityProviders'
 import GoogleIcon from '@/components/icons/GoogleIcon.vue'
 import GitHubIcon from '@/components/icons/GitHubIcon.vue'
