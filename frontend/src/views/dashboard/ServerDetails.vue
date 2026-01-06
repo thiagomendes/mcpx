@@ -139,6 +139,51 @@
       <!-- Tool Governance (admin only) -->
       <ToolGovernance v-if="canWrite" :server-name="server.name" :available-tools="testResult?.tools || []" />
 
+      <!-- Rate Limiting (admin only) -->
+      <div v-if="canWrite" class="card mb-6">
+        <h3 class="font-semibold mb-3 flex items-center gap-2">
+          <ClockIcon class="w-5 h-5 text-primary" />
+          Rate Limiting
+        </h3>
+        <div class="flex items-center gap-4">
+          <div class="flex-1">
+            <label class="block text-sm text-gray-400 mb-2">Requests per minute</label>
+            <div class="flex items-center gap-3">
+              <input 
+                v-model.number="rateLimitInput"
+                type="number" 
+                class="input w-40"
+                placeholder="Unlimited"
+                min="1"
+                max="100000"
+              />
+              <span class="text-gray-500 text-sm">Leave empty for unlimited</span>
+            </div>
+          </div>
+          <button 
+            @click="handleSaveRateLimit"
+            :disabled="savingRateLimit"
+            class="btn btn-secondary flex items-center gap-2 mt-6"
+          >
+            {{ savingRateLimit ? 'Saving...' : 'Save' }}
+          </button>
+        </div>
+        <p v-if="rateLimitSuccess" class="text-green-400 text-sm mt-2">Rate limit updated!</p>
+        <p v-if="rateLimitError" class="text-red-400 text-sm mt-2">{{ rateLimitError }}</p>
+      </div>
+
+      <!-- Rate Limit Display (for members - read only) -->
+      <div v-else-if="server.rate_limit_per_minute" class="card mb-6">
+        <h3 class="font-semibold mb-3 flex items-center gap-2">
+          <ClockIcon class="w-5 h-5 text-primary" />
+          Rate Limiting
+        </h3>
+        <div class="text-sm">
+          <span class="text-gray-400">Limit:</span>
+          <span class="ml-2">{{ server.rate_limit_per_minute }} requests/min</span>
+        </div>
+      </div>
+
       <!-- Server Info -->
       <div class="card">
         <h3 class="font-semibold mb-3 flex items-center gap-2">
@@ -195,7 +240,8 @@ import {
   LockClosedIcon,
   ShieldCheckIcon,
   CommandLineIcon,
-  ChevronDownIcon
+  ChevronDownIcon,
+  ClockIcon
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -212,6 +258,12 @@ const authorizing = ref(false)
 const oauthError = ref<string | null>(null)
 const countdownTick = ref(0) // For triggering countdown updates
 let countdownInterval: ReturnType<typeof setInterval> | null = null
+
+// Rate limit state
+const rateLimitInput = ref<number | null>(null)
+const savingRateLimit = ref(false)
+const rateLimitSuccess = ref(false)
+const rateLimitError = ref<string | null>(null)
 
 const HEALTH_CHECK_INTERVAL_SECONDS = 300 // 5 minutes
 
@@ -301,6 +353,11 @@ onMounted(async () => {
   await serversStore.fetchServers()
   server.value = serversStore.getServerByName(route.params.name as string) || null
   
+  // Initialize rate limit input from server value
+  if (server.value) {
+    rateLimitInput.value = server.value.rate_limit_per_minute ?? null
+  }
+  
   // Check OAuth status for oauth_auto servers
   if (server.value?.auth_type === 'oauth_auto') {
     try {
@@ -342,6 +399,30 @@ onUnmounted(() => {
     clearInterval(countdownInterval)
   }
 })
+
+async function handleSaveRateLimit() {
+  if (!server.value) return
+  savingRateLimit.value = true
+  rateLimitSuccess.value = false
+  rateLimitError.value = null
+  
+  try {
+    await api.put(`/servers/${server.value.name}`, {
+      rate_limit_per_minute: rateLimitInput.value || null
+    })
+    rateLimitSuccess.value = true
+    setTimeout(() => { rateLimitSuccess.value = false }, 3000)
+    
+    // Refresh server data
+    await serversStore.fetchServers()
+    server.value = serversStore.getServerByName(server.value.name) || null
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: string } }
+    rateLimitError.value = err.response?.data || 'Failed to save rate limit'
+  } finally {
+    savingRateLimit.value = false
+  }
+}
 
 async function handleAuthorize() {
   if (!server.value) return
