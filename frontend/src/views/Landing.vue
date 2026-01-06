@@ -17,9 +17,9 @@
     <main class="flex-1 relative z-10">
       <div class="max-w-7xl mx-auto px-6 py-20 text-center">
         <!-- Logo + Name -->
-        <div class="flex flex-col items-center mb-8 animate-fade-in">
-          <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-20 h-20 object-contain mb-3" />
-          <span class="text-3xl font-bold text-white">mcpx</span>
+        <div class="flex items-center justify-center gap-3 mb-8 animate-fade-in">
+          <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-12 h-12 object-contain" />
+          <span class="text-3xl font-bold text-gradient">mcpx</span>
         </div>
 
         <!-- Main Headline -->
