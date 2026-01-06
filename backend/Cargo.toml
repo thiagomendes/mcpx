@@ -50,6 +50,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2.0"
 anyhow = "1.0"
 async-trait = "0.1"
+dashmap = "6.1"
 
 # Security
 argon2 = "0.5"

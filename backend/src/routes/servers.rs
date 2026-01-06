@@ -29,8 +29,8 @@ use rmcp::{
 const SQL_LIST_SERVERS: &str = "SELECT * FROM servers WHERE org_id = $1 ORDER BY created_at DESC";
 
 const SQL_INSERT_SERVER: &str = r#"
-    INSERT INTO servers (org_id, name, url, transport, auth_type, status, oauth_client_id, oauth_authorization_url, oauth_token_url, oauth_scopes, oauth_use_pkce)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    INSERT INTO servers (org_id, name, url, transport, auth_type, status, oauth_client_id, oauth_authorization_url, oauth_token_url, oauth_scopes, oauth_use_pkce, rate_limit_per_minute)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     RETURNING *
 "#;
 
@@ -44,6 +44,7 @@ const SQL_UPDATE_SERVER: &str = r#"
         url = COALESCE($4, url),
         transport = COALESCE($5, transport),
         enabled = COALESCE($6, enabled),
+        rate_limit_per_minute = CASE WHEN $7::INTEGER IS NOT NULL THEN $7 ELSE rate_limit_per_minute END,
         updated_at = NOW()
     WHERE org_id = $1 AND name = $2
     RETURNING *
@@ -170,6 +171,7 @@ pub async fn create_server(
         } else {
             None
         })
+        .bind(payload.rate_limit_per_minute)
         .fetch_one(&state.db.pool)
         .await
         .map_err(|e| {
@@ -323,6 +325,7 @@ pub async fn update_server(
         .bind(&payload.url)
         .bind(&payload.transport)
         .bind(payload.enabled)
+        .bind(payload.rate_limit_per_minute)
         .fetch_optional(&state.db.pool)
         .await
         .map_err(|e| {

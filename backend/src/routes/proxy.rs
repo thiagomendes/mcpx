@@ -17,7 +17,7 @@ use crate::AppState;
 
 // SQL queries now use org_id/org_slug instead of user_id
 const SQL_SELECT_ORG_BY_SLUG: &str = "SELECT id FROM organizations WHERE slug = $1";
-const SQL_SELECT_SERVER: &str = "SELECT id, org_id, name, url, transport, auth_type, status, oauth_client_id, oauth_token_url FROM servers WHERE name = $1 AND org_id = $2";
+const SQL_SELECT_SERVER: &str = "SELECT id, org_id, name, url, transport, auth_type, status, oauth_client_id, oauth_token_url, rate_limit_per_minute FROM servers WHERE name = $1 AND org_id = $2";
 const SQL_SELECT_GOVERNANCE: &str =
     "SELECT allowed_tools, denied_tools, tool_prefix FROM governance_configs WHERE server_id = $1";
 
@@ -26,7 +26,7 @@ const SQL_SELECT_GATEWAY: &str = r#"
 "#;
 
 const SQL_SELECT_GATEWAY_SERVERS: &str = r#"
-    SELECT s.id, s.org_id, s.name, s.url, s.transport, s.auth_type, s.status, s.oauth_client_id, s.oauth_token_url
+    SELECT s.id, s.org_id, s.name, s.url, s.transport, s.auth_type, s.status, s.oauth_client_id, s.oauth_token_url, s.rate_limit_per_minute
     FROM gateway_servers gs
     JOIN servers s ON s.id = gs.server_id
     WHERE gs.gateway_id = $1
@@ -312,6 +312,22 @@ async fn handle_server_proxy(
             error::SERVER_DISABLED.to_string(),
         ));
     }
+
+    // Check rate limit (only if configured - NULL means unlimited)
+    let _rate_info = state
+        .rate_limiter
+        .check_and_increment(server.org_id, server.id, &server.name, server.rate_limit_per_minute)
+        .map_err(|e| {
+            tracing::warn!("Rate limit exceeded: server={}, limit={}", server.name, e.limit);
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                serde_json::json!({
+                    "error": "rate_limit_exceeded",
+                    "message": e.to_string(),
+                    "retry_after": e.retry_after
+                }).to_string(),
+            )
+        })?;
 
     let governance = get_governance_config(state, server.id).await.map_err(|e| {
         (
@@ -1067,6 +1083,22 @@ async fn handle_gateway_tools_call(
             original_tool_name
         );
 
+        // Check rate limit for this server (if configured)
+        state
+            .rate_limiter
+            .check_and_increment(server.org_id, server.id, &server.name, server.rate_limit_per_minute)
+            .map_err(|e| {
+                tracing::warn!("Rate limit exceeded via gateway: server={}, limit={}", server.name, e.limit);
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    serde_json::json!({
+                        "error": "rate_limit_exceeded",
+                        "message": e.to_string(),
+                        "retry_after": e.retry_after
+                    }).to_string(),
+                )
+            })?;
+
         // Found the right server - forward the request
         let mut modified_request = request.clone();
         if let Some(params) = modified_request.get_mut("params") {
@@ -1225,6 +1257,7 @@ struct ServerRow {
     status: Option<String>,
     oauth_client_id: Option<String>,
     oauth_token_url: Option<String>,
+    rate_limit_per_minute: Option<i32>,
 }
 
 #[derive(sqlx::FromRow)]

@@ -8,6 +8,7 @@ pub mod mcp_client;
 pub mod metrics;
 pub mod oauth_provider;
 pub mod org;
+pub mod rate_limiter;
 pub mod repositories;
 pub mod request_logs;
 pub mod server_auth;

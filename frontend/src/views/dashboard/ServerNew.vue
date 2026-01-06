@@ -238,6 +238,27 @@
           </div>
         </div>
 
+        <!-- Rate Limiting -->
+        <div class="border-t border-gray-700 pt-6">
+          <div class="flex items-center gap-2 mb-2">
+            <label class="block text-sm font-medium">Rate Limit (requests/min)</label>
+            <InfoTooltip 
+              title="Rate Limiting"
+              content="Limit the number of requests per minute to this server. Leave empty for unlimited. Useful for controlling costs on paid APIs."
+              type="info"
+            />
+          </div>
+          <input 
+            v-model.number="form.rate_limit_per_minute"
+            type="number" 
+            class="input w-48"
+            placeholder="Unlimited"
+            min="1"
+            max="100000"
+          />
+          <p class="text-gray-500 text-sm mt-1">Leave empty for unlimited</p>
+        </div>
+
         <!-- Error -->
         <div v-if="error" class="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg flex items-center gap-2">
           <ExclamationCircleIcon class="w-5 h-5" />
@@ -322,6 +343,7 @@ const form = reactive({
   oauth_client_secret: '',
   oauth_scopes: '',
   oauth_use_pkce: true,
+  rate_limit_per_minute: null as number | null,
 })
 
 const error = ref<string | null>(null)
