@@ -3,9 +3,14 @@
     <!-- Sidebar -->
     <aside class="w-64 border-r border-border p-4 flex flex-col">
       <!-- Logo -->
-      <div class="flex items-center gap-3 mb-4 px-2">
+      <div class="flex items-center gap-3 mb-2 px-2">
         <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-10 h-10 object-contain" />
         <span class="text-xl font-bold text-gradient">mcpx</span>
+      </div>
+      <!-- Beta Badge -->
+      <div class="flex items-center gap-1.5 px-2 py-1 mb-4 mx-2 rounded-md bg-purple-500/10 border border-purple-500/30">
+        <BeakerIcon class="w-3.5 h-3.5 text-purple-400" />
+        <span class="text-xs font-medium text-purple-300">Public Beta</span>
       </div>
 
       <!-- Org Switcher -->
@@ -134,7 +139,8 @@ import {
   ClipboardDocumentListIcon,
   BellIcon,
   ArrowRightOnRectangleIcon,
-  ChevronDownIcon 
+  ChevronDownIcon,
+  BeakerIcon
 } from '@heroicons/vue/24/outline'
 import GoogleIcon from '@/components/icons/GoogleIcon.vue'
 import GitHubIcon from '@/components/icons/GitHubIcon.vue'

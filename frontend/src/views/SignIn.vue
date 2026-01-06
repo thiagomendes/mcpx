@@ -3,9 +3,14 @@
     <div class="max-w-md w-full px-4">
       <div class="card text-center">
         <!-- Logo -->
-        <div class="flex items-center justify-center gap-3 mb-8">
+        <div class="flex items-center justify-center gap-3 mb-4">
           <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-12 h-12 object-contain" />
           <span class="text-2xl font-bold text-gradient">mcpx</span>
+        </div>
+        <!-- Beta Badge -->
+        <div class="inline-flex items-center gap-1.5 px-3 py-1 mb-6 rounded-full bg-purple-500/10 border border-purple-500/30">
+          <BeakerIcon class="w-3.5 h-3.5 text-purple-400" />
+          <span class="text-xs font-medium text-purple-300">Public Beta</span>
         </div>
 
         <h1 class="text-2xl font-bold mb-2">Sign In</h1>
@@ -41,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowLeftIcon } from '@heroicons/vue/24/outline'
+import { ArrowLeftIcon, BeakerIcon } from '@heroicons/vue/24/outline'
 import { getEnabledProviders, loginWithProvider, type IdentityProviderType } from '@/lib/identityProviders'
 import GoogleIcon from '@/components/icons/GoogleIcon.vue'
 import GitHubIcon from '@/components/icons/GitHubIcon.vue'
