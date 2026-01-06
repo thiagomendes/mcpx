@@ -7,22 +7,21 @@
       <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-r from-purple-500/10 to-cyan-500/10 rounded-full blur-3xl"></div>
     </div>
 
-    <!-- Header -->
-    <header class="relative z-10 border-b border-white/10 backdrop-blur-sm">
-      <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-10 h-10 object-contain" />
-          <span class="text-xl font-bold text-white">mcpx</span>
-        </div>
-        <router-link to="/login" class="text-sm text-gray-400 hover:text-white transition-colors">
-          Sign In →
-        </router-link>
+    <!-- Header (minimal) -->
+    <header class="relative z-10 border-b border-white/10">
+      <div class="max-w-7xl mx-auto px-6 py-4">
       </div>
     </header>
 
     <!-- Hero Section -->
     <main class="flex-1 relative z-10">
       <div class="max-w-7xl mx-auto px-6 py-24 text-center">
+        <!-- Logo + Name -->
+        <div class="flex flex-col items-center mb-8 animate-fade-in">
+          <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-20 h-20 object-contain mb-3" />
+          <span class="text-3xl font-bold text-white">mcpx</span>
+        </div>
+
         <!-- Badge -->
         <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-8 animate-fade-in">
           <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
@@ -42,30 +41,11 @@
           <span class="text-white">Secure, scalable, ready for production.</span>
         </p>
 
-        <!-- CTA Buttons -->
-        <div class="flex flex-col sm:flex-row gap-4 justify-center mb-20 animate-fade-in-up animation-delay-400">
-          <router-link to="/login" class="btn btn-primary px-8 py-4 text-lg font-semibold rounded-xl shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all hover:scale-105">
+        <!-- CTA Button -->
+        <div class="flex justify-center mb-24 animate-fade-in-up animation-delay-400">
+          <router-link to="/login" class="btn btn-primary px-10 py-4 text-lg font-semibold rounded-xl shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all hover:scale-105">
             Get Started Free
           </router-link>
-          <a href="#features" class="px-8 py-4 text-lg font-semibold rounded-xl border border-white/20 text-white hover:bg-white/5 transition-all">
-            Learn More
-          </a>
-        </div>
-
-        <!-- Stats -->
-        <div class="grid grid-cols-3 gap-8 max-w-2xl mx-auto mb-24 animate-fade-in-up animation-delay-600">
-          <div class="text-center">
-            <div class="text-3xl md:text-4xl font-bold text-white mb-1">100%</div>
-            <div class="text-sm text-gray-500">Open Source</div>
-          </div>
-          <div class="text-center">
-            <div class="text-3xl md:text-4xl font-bold text-gradient mb-1">&lt;5ms</div>
-            <div class="text-sm text-gray-500">Proxy Latency</div>
-          </div>
-          <div class="text-center">
-            <div class="text-3xl md:text-4xl font-bold text-white mb-1">∞</div>
-            <div class="text-sm text-gray-500">MCP Servers</div>
-          </div>
         </div>
 
         <!-- Features Grid -->
@@ -94,40 +74,13 @@
             <p class="text-gray-400">Audit logs, analytics, and real-time monitoring for every request.</p>
           </div>
         </div>
-
-        <!-- More Features -->
-        <div class="grid md:grid-cols-4 gap-4 mt-6">
-          <div class="card-glass p-6 rounded-xl text-center hover:border-white/20 transition-all">
-            <BoltIcon class="w-6 h-6 mx-auto mb-3 text-yellow-400" />
-            <div class="text-sm font-medium text-white">Rate Limiting</div>
-          </div>
-          <div class="card-glass p-6 rounded-xl text-center hover:border-white/20 transition-all">
-            <KeyIcon class="w-6 h-6 mx-auto mb-3 text-green-400" />
-            <div class="text-sm font-medium text-white">OAuth & API Keys</div>
-          </div>
-          <div class="card-glass p-6 rounded-xl text-center hover:border-white/20 transition-all">
-            <UsersIcon class="w-6 h-6 mx-auto mb-3 text-blue-400" />
-            <div class="text-sm font-medium text-white">Multi-Org RBAC</div>
-          </div>
-          <div class="card-glass p-6 rounded-xl text-center hover:border-white/20 transition-all">
-            <ServerStackIcon class="w-6 h-6 mx-auto mb-3 text-pink-400" />
-            <div class="text-sm font-medium text-white">Gateway Aggregation</div>
-          </div>
-        </div>
       </div>
     </main>
 
     <!-- Footer -->
     <footer class="relative z-10 border-t border-white/10 py-8">
-      <div class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div class="flex items-center gap-3">
-          <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-8 h-8 object-contain opacity-60" />
-          <span class="text-gray-500 text-sm">Built by TM Dev Lab</span>
-        </div>
-        <div class="flex gap-6 text-sm text-gray-500">
-          <a href="#" class="hover:text-white transition-colors">Documentation</a>
-          <a href="#" class="hover:text-white transition-colors">GitHub</a>
-        </div>
+      <div class="max-w-7xl mx-auto px-6 text-center">
+        <span class="text-gray-500 text-sm">Built by TM Dev Lab</span>
       </div>
     </footer>
   </div>
@@ -140,11 +93,7 @@ import { useAuthStore } from '@/stores/auth'
 import { 
   LinkIcon, 
   ShieldCheckIcon, 
-  ChartBarIcon,
-  BoltIcon,
-  KeyIcon,
-  UsersIcon,
-  ServerStackIcon
+  ChartBarIcon
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -193,10 +142,6 @@ onMounted(() => {
 
 .animation-delay-400 {
   animation-delay: 0.4s;
-}
-
-.animation-delay-600 {
-  animation-delay: 0.6s;
 }
 
 @keyframes fade-in {
