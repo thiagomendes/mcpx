@@ -219,6 +219,24 @@ pub async fn oauth_callback(
         )
     })?;
 
+    // Record audit log for successful login
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org.id,
+        Some(user.id),
+        crate::services::audit::actions::USER_LOGIN,
+        crate::services::audit::resource_types::USER,
+        Some(user.id),
+        Some(&user.email),
+        Some(serde_json::json!({
+            "provider": &provider_name,
+            "org_slug": &org.slug
+        })),
+        None,
+        None,
+    )
+    .await;
+
     let redirect_url = format!("{}?token={}", state.config.frontend_url, token);
     Ok(Redirect::temporary(&redirect_url).into_response())
 }
@@ -382,7 +400,25 @@ pub async fn switch_org(
     })))
 }
 
-pub async fn logout() -> impl IntoResponse {
+pub async fn logout(
+    State(state): State<Arc<AppState>>,
+    auth: crate::middleware::auth::AuthUser,
+) -> impl IntoResponse {
+    // Record audit log for logout
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        auth.org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::USER_LOGOUT,
+        crate::services::audit::resource_types::USER,
+        Some(auth.user_id),
+        Some(&auth.email),
+        None,
+        None,
+        None,
+    )
+    .await;
+
     StatusCode::OK
 }
 

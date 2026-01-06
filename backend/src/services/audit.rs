@@ -271,6 +271,18 @@ pub mod actions {
     // Org actions
     pub const ORG_MEMBER_ADD: &str = "org.member.add";
     pub const ORG_MEMBER_REMOVE: &str = "org.member.remove";
+
+    // Token actions
+    pub const TOKEN_CREATE: &str = "token.create";
+    pub const TOKEN_DELETE: &str = "token.delete";
+
+    // Service account actions
+    pub const SERVICE_ACCOUNT_CREATE: &str = "service_account.create";
+    pub const SERVICE_ACCOUNT_DELETE: &str = "service_account.delete";
+
+    // Governance actions
+    pub const GOVERNANCE_UPDATE: &str = "governance.update";
+    pub const GOVERNANCE_DELETE: &str = "governance.delete";
 }
 
 // ============================================================================
@@ -282,4 +294,7 @@ pub mod resource_types {
     pub const GATEWAY: &str = "gateway";
     pub const USER: &str = "user";
     pub const ORG: &str = "org";
+    pub const TOKEN: &str = "token";
+    pub const SERVICE_ACCOUNT: &str = "service_account";
+    pub const GOVERNANCE: &str = "governance";
 }

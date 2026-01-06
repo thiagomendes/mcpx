@@ -264,6 +264,24 @@ pub async fn create_service_account(
 
     tracing::info!("Service account created: {} ({})", row.1, client_id);
 
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(user_id),
+        crate::services::audit::actions::SERVICE_ACCOUNT_CREATE,
+        crate::services::audit::resource_types::SERVICE_ACCOUNT,
+        Some(row.0),
+        Some(&row.1),
+        Some(serde_json::json!({
+            "client_id": &client_id,
+            "scopes": &payload.scopes
+        })),
+        None,
+        None,
+    )
+    .await;
+
     // Return with secret (shown only once!)
     Ok(Json(ServiceAccountCreatedResponse {
         id: row.0,
@@ -383,7 +401,21 @@ pub async fn delete_service_account(
         ));
     }
 
-    tracing::info!("Service account deleted: {}", account_id);
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::SERVICE_ACCOUNT_DELETE,
+        crate::services::audit::resource_types::SERVICE_ACCOUNT,
+        Some(account_id),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 

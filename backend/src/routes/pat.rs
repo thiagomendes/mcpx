@@ -242,12 +242,23 @@ pub async fn create_token(
             )
         })?;
 
-    // Log audit event
-    tracing::info!(
-        user_id = %user_id,
-        token_name = %payload.name,
-        "PAT created"
-    );
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(user_id),
+        crate::services::audit::actions::TOKEN_CREATE,
+        crate::services::audit::resource_types::TOKEN,
+        Some(row.id),
+        Some(&payload.name),
+        Some(serde_json::json!({
+            "scopes": &payload.scopes,
+            "expires_in_days": payload.expires_in_days
+        })),
+        None,
+        None,
+    )
+    .await;
 
     Ok(Json(PatCreatedResponse {
         id: row.id,
@@ -288,11 +299,20 @@ pub async fn delete_token(
         return Err((StatusCode::NOT_FOUND, "Token not found".to_string()));
     }
 
-    tracing::info!(
-        user_id = %user_id,
-        token_id = %token_id,
-        "PAT revoked"
-    );
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(user_id),
+        crate::services::audit::actions::TOKEN_DELETE,
+        crate::services::audit::resource_types::TOKEN,
+        Some(token_id),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
