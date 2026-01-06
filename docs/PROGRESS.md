@@ -1,6 +1,6 @@
 # MCPX - Estado do Projeto
 
-**Última atualização:** 2026-01-04
+**Última atualização:** 2026-01-06
 **Branch:** main
 
 ---
@@ -171,6 +171,29 @@ Página para visualizar logs individuais de cada request MCP:
 - [x] Frontend: Auto-refresh com toggle e countdown
 - [x] SSE parsing para capturar response bodies de MCP servers
 - [x] Detecção de erros JSON-RPC no response body
+
+---
+
+#### Admin Audit Logging System ✅
+**Prioridade:** 🔴 Alta - **IMPLEMENTADO**
+
+Sistema de auditoria para ações administrativas com **22 ações auditadas**:
+
+| Categoria | Ações | Arquivo |
+|-----------|-------|---------|
+| **Server** | create, update, delete | `servers.rs` |
+| **Gateway** | create, update, delete, add_server, remove_server | `gateways.rs` |
+| **User** | login, logout | `auth.rs` |
+| **Org Member** | add (invite/join), remove | `orgs.rs` |
+| **Token (PAT)** | create, delete | `pat.rs` |
+| **Service Account** | create, delete | `service_accounts.rs` |
+| **Governance** | update, delete | `governance.rs` |
+
+**Features implementadas:**
+- [x] User info (nome + email) na tabela e modal via LEFT JOIN
+- [x] Dados padronizados: deletes logam mesmos detalhes que creates
+- [x] 107 testes backend passando
+- [x] 0 warnings (clippy + eslint)
 
 ---
 
