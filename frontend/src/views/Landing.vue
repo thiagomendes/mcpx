@@ -17,9 +17,15 @@
     <main class="flex-1 relative z-10">
       <div class="max-w-7xl mx-auto px-6 py-20 text-center">
         <!-- Logo + Name -->
-        <div class="flex items-center justify-center gap-3 mb-8 animate-fade-in">
+        <div class="flex items-center justify-center gap-3 mb-6 animate-fade-in">
           <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-12 h-12 object-contain" />
           <span class="text-3xl font-bold text-gradient">mcpx</span>
+        </div>
+
+        <!-- Beta Badge -->
+        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-500/10 border border-purple-500/30 mb-8 animate-fade-in">
+          <BeakerIcon class="w-4 h-4 text-purple-400" />
+          <span class="text-sm font-medium text-purple-300">Public Beta</span>
         </div>
 
         <!-- Main Headline -->
@@ -38,7 +44,7 @@
         <!-- CTA Button -->
         <div class="flex justify-center mb-20 animate-fade-in-up animation-delay-400">
           <router-link to="/login" class="btn btn-primary px-10 py-4 text-lg font-semibold rounded-xl shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all hover:scale-105">
-            Get Started Free
+            Start Beta
           </router-link>
         </div>
 
@@ -100,7 +106,8 @@
 
     <!-- Footer -->
     <footer class="relative z-10 border-t border-white/10 py-8">
-      <div class="max-w-7xl mx-auto px-6 text-center">
+      <div class="max-w-7xl mx-auto px-6 text-center space-y-2">
+        <p class="text-gray-600 text-xs">mcpx is currently in beta. Features and availability may change.</p>
         <span class="text-gray-500 text-sm">Built by TM Dev Lab</span>
       </div>
     </footer>
@@ -117,7 +124,8 @@ import {
   ChartBarIcon,
   ClockIcon,
   KeyIcon,
-  ServerStackIcon
+  ServerStackIcon,
+  BeakerIcon
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
