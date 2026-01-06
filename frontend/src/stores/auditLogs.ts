@@ -6,6 +6,8 @@ export interface AuditLogEntry {
     id: string
     time: string
     user_id: string | null
+    user_name: string | null
+    user_email: string | null
     action: string
     resource_type: string
     resource_id: string | null

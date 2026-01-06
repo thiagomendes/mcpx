@@ -345,6 +345,9 @@ pub async fn update_server(
         Some(server.id),
         Some(&server.name),
         Some(serde_json::json!({
+            "url": &server.url,
+            "transport": &server.transport,
+            "auth_type": &server.auth_type,
             "enabled": server.enabled
         })),
         None,
@@ -367,6 +370,19 @@ pub async fn delete_server(
 
     let org_id = auth.org_id;
 
+    // Fetch server details before deletion for audit log
+    let server: Option<Server> = sqlx::query_as(SQL_SELECT_SERVER_BY_NAME)
+        .bind(org_id)
+        .bind(&name)
+        .fetch_optional(&state.db.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", error::DATABASE_ERROR, e),
+            )
+        })?;
+
     let result = sqlx::query(SQL_DELETE_SERVER)
         .bind(org_id)
         .bind(&name)
@@ -383,16 +399,20 @@ pub async fn delete_server(
         return Err((StatusCode::NOT_FOUND, error::SERVER_NOT_FOUND.to_string()));
     }
 
-    // Record audit log
+    // Record audit log with full server details
     let _ = crate::services::audit::record_audit_log(
         &state.db.pool,
         org_id,
         Some(auth.user_id),
         crate::services::audit::actions::SERVER_DELETE,
         crate::services::audit::resource_types::SERVER,
-        None,
+        server.as_ref().map(|s| s.id),
         Some(&name),
-        None,
+        server.as_ref().map(|s| serde_json::json!({
+            "url": &s.url,
+            "transport": &s.transport,
+            "auth_type": &s.auth_type
+        })),
         None,
         None,
     )

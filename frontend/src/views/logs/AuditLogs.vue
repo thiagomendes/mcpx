@@ -83,9 +83,9 @@
         <thead>
           <tr class="border-b border-border bg-background-card">
             <th class="text-left text-xs font-semibold uppercase text-gray-400 px-4 py-3">Time</th>
+            <th class="text-left text-xs font-semibold uppercase text-gray-400 px-4 py-3">User</th>
             <th class="text-left text-xs font-semibold uppercase text-gray-400 px-4 py-3">Action</th>
             <th class="text-left text-xs font-semibold uppercase text-gray-400 px-4 py-3">Resource</th>
-            <th class="text-left text-xs font-semibold uppercase text-gray-400 px-4 py-3">Details</th>
           </tr>
         </thead>
         <tbody>
@@ -102,6 +102,13 @@
               </div>
             </td>
             <td class="px-4 py-3">
+              <div v-if="log.user_name || log.user_email" class="text-sm">
+                <div class="font-medium">{{ log.user_name || '-' }}</div>
+                <div class="text-xs text-gray-500">{{ log.user_email }}</div>
+              </div>
+              <span v-else class="text-gray-500">-</span>
+            </td>
+            <td class="px-4 py-3">
               <span class="px-2 py-1 rounded text-xs font-medium" :class="getActionClass(log.action)">
                 {{ formatAction(log.action) }}
               </span>
@@ -113,9 +120,6 @@
                 </span>
                 <span class="font-medium">{{ log.resource_name || '-' }}</span>
               </div>
-            </td>
-            <td class="px-4 py-3 text-sm text-gray-400">
-              {{ log.resource_id ? log.resource_id.slice(0, 8) + '...' : '-' }}
             </td>
           </tr>
         </tbody>
@@ -162,6 +166,14 @@
             <div>
               <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Time</label>
               <span class="text-sm">{{ formatTime(store.selectedLog.time) }}</span>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">User</label>
+              <div v-if="store.selectedLog.user_name || store.selectedLog.user_email" class="text-sm">
+                <div class="font-medium">{{ store.selectedLog.user_name || '-' }}</div>
+                <div class="text-xs text-gray-500">{{ store.selectedLog.user_email }}</div>
+              </div>
+              <span v-else class="text-sm text-gray-500">-</span>
             </div>
             <div>
               <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Action</label>

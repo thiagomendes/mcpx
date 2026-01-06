@@ -53,6 +53,8 @@ pub struct AuditLogEntry {
     pub id: Uuid,
     pub time: DateTime<Utc>,
     pub user_id: Option<Uuid>,
+    pub user_name: Option<String>,
+    pub user_email: Option<String>,
     pub action: String,
     pub resource_type: String,
     pub resource_id: Option<Uuid>,
@@ -64,6 +66,8 @@ pub struct AuditLogDetail {
     pub id: Uuid,
     pub time: DateTime<Utc>,
     pub user_id: Option<Uuid>,
+    pub user_name: Option<String>,
+    pub user_email: Option<String>,
     pub action: String,
     pub resource_type: String,
     pub resource_id: Option<Uuid>,
@@ -106,6 +110,8 @@ type AuditListDbRow = (
     String,
     Option<Uuid>,
     Option<String>,
+    Option<String>,  // user_name
+    Option<String>,  // user_email
 );
 
 type AuditDetailDbRow = (
@@ -119,6 +125,8 @@ type AuditDetailDbRow = (
     Option<serde_json::Value>,
     Option<String>,
     Option<String>,
+    Option<String>,  // user_name
+    Option<String>,  // user_email
 );
 
 /// List audit logs with pagination and filters
@@ -131,30 +139,30 @@ pub async fn list_audit_logs(
     let limit = query.limit.min(100);
     let offset = query.offset;
 
-    // Build WHERE clause
+    // Build WHERE clause (using 'a.' alias for the main table)
     let mut conditions = vec![
-        "org_id = $1".to_string(),
-        format!("time >= NOW() - INTERVAL '{} hours'", hours),
+        "a.org_id = $1".to_string(),
+        format!("a.time >= NOW() - INTERVAL '{} hours'", hours),
     ];
 
     if let Some(ref action) = query.action {
-        conditions.push(format!("action = '{}'", action.replace('\'', "''")));
+        conditions.push(format!("a.action = '{}'", action.replace('\'', "''")));
     }
     if let Some(ref resource_type) = query.resource_type {
         conditions.push(format!(
-            "resource_type = '{}'",
+            "a.resource_type = '{}'",
             resource_type.replace('\'', "''")
         ));
     }
     if let Some(user_id) = query.user_id {
-        conditions.push(format!("user_id = '{}'", user_id));
+        conditions.push(format!("a.user_id = '{}'", user_id));
     }
 
     let where_clause = conditions.join(" AND ");
 
     // Get total count
     let count_sql = format!(
-        "SELECT COUNT(*)::BIGINT FROM admin_audit_logs WHERE {}",
+        "SELECT COUNT(*)::BIGINT FROM admin_audit_logs a WHERE {}",
         where_clause
     );
     let total: (i64,) = sqlx::query_as(&count_sql)
@@ -162,13 +170,15 @@ pub async fn list_audit_logs(
         .fetch_one(pool)
         .await?;
 
-    // Get paginated data
+    // Get paginated data with user info
     let data_sql = format!(
         r#"
-        SELECT id, time, user_id, action, resource_type, resource_id, resource_name
-        FROM admin_audit_logs
+        SELECT a.id, a.time, a.user_id, a.action, a.resource_type, a.resource_id, a.resource_name,
+               u.name as user_name, u.email as user_email
+        FROM admin_audit_logs a
+        LEFT JOIN users u ON a.user_id = u.id
         WHERE {}
-        ORDER BY time DESC
+        ORDER BY a.time DESC
         LIMIT {} OFFSET {}
         "#,
         where_clause, limit, offset
@@ -189,6 +199,8 @@ pub async fn list_audit_logs(
             resource_type: row.4,
             resource_id: row.5,
             resource_name: row.6,
+            user_name: row.7,
+            user_email: row.8,
         })
         .collect();
 
@@ -208,10 +220,12 @@ pub async fn get_audit_log(
 ) -> Result<Option<AuditLogDetail>, sqlx::Error> {
     let row: Option<AuditDetailDbRow> = sqlx::query_as(
         r#"
-        SELECT id, time, user_id, action, resource_type, 
-               resource_id, resource_name, details, ip_address, user_agent
-        FROM admin_audit_logs
-        WHERE id = $1 AND org_id = $2
+        SELECT a.id, a.time, a.user_id, a.action, a.resource_type, 
+               a.resource_id, a.resource_name, a.details, a.ip_address, a.user_agent,
+               u.name as user_name, u.email as user_email
+        FROM admin_audit_logs a
+        LEFT JOIN users u ON a.user_id = u.id
+        WHERE a.id = $1 AND a.org_id = $2
         "#,
     )
     .bind(log_id)
@@ -230,6 +244,8 @@ pub async fn get_audit_log(
         details: r.7,
         ip_address: r.8,
         user_agent: r.9,
+        user_name: r.10,
+        user_email: r.11,
     }))
 }
 
