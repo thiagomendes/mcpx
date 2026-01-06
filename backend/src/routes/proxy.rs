@@ -26,7 +26,7 @@ const SQL_SELECT_GATEWAY: &str = r#"
 "#;
 
 const SQL_SELECT_GATEWAY_SERVERS: &str = r#"
-    SELECT s.id, s.org_id, s.name, s.url, s.transport, s.auth_type, s.status, s.oauth_client_id, s.oauth_token_url
+    SELECT s.id, s.org_id, s.name, s.url, s.transport, s.auth_type, s.status, s.oauth_client_id, s.oauth_token_url, s.rate_limit_per_minute
     FROM gateway_servers gs
     JOIN servers s ON s.id = gs.server_id
     WHERE gs.gateway_id = $1
