@@ -5,15 +5,16 @@
 
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use uuid::Uuid;
 
 /// Rate limit cache entry
+/// Uses atomic counters and timestamps for thread-safe updates
 struct RateLimitEntry {
     /// Current request count in window
     count: AtomicU64,
-    /// Window start time
-    window_start: Instant,
+    /// Window start time as unix timestamp (seconds)
+    window_start_secs: AtomicU64,
     /// Configured limit (requests per minute)
     #[allow(dead_code)]
     limit: u32,
@@ -106,34 +107,33 @@ impl RateLimiterService {
         };
 
         let key = (org_id, server_id);
-        let now = Instant::now();
+        let now_secs = chrono::Utc::now().timestamp() as u64;
+        let window_duration_secs = self.config.window_duration.as_secs();
 
-        // Try to get or create entry
+        // Get or create entry
         let entry = self.cache.entry(key).or_insert_with(|| RateLimitEntry {
             count: AtomicU64::new(0),
-            window_start: now,
+            window_start_secs: AtomicU64::new(now_secs),
             limit,
         });
 
-        // Check if window has expired
-        let elapsed = now.duration_since(entry.window_start);
-        if elapsed >= self.config.window_duration {
-            // Window expired - reset
+        // Check if window has expired and reset if needed
+        let window_start = entry.window_start_secs.load(Ordering::SeqCst);
+        let elapsed = now_secs.saturating_sub(window_start);
+        
+        if elapsed >= window_duration_secs {
+            // Window expired - reset both counter and window start atomically
+            entry.window_start_secs.store(now_secs, Ordering::SeqCst);
             entry.count.store(0, Ordering::SeqCst);
-            // Note: We can't mutate window_start here due to borrow rules
-            // This is a simplification - in production you'd use a more sophisticated approach
         }
 
         // Get current count and increment
         let current_count = entry.count.fetch_add(1, Ordering::SeqCst);
 
         // Calculate reset time
-        let seconds_until_reset = self
-            .config
-            .window_duration
-            .saturating_sub(elapsed)
-            .as_secs();
-        let reset_at = chrono::Utc::now().timestamp() + seconds_until_reset as i64;
+        let window_start = entry.window_start_secs.load(Ordering::SeqCst);
+        let reset_at = (window_start + window_duration_secs) as i64;
+        let seconds_until_reset = reset_at - chrono::Utc::now().timestamp();
 
         // Check if exceeded
         if current_count >= limit as u64 {
@@ -141,7 +141,7 @@ impl RateLimiterService {
             entry.count.fetch_sub(1, Ordering::SeqCst);
             return Err(RateLimitExceeded {
                 limit,
-                retry_after: seconds_until_reset as u32,
+                retry_after: seconds_until_reset.max(0) as u32,
                 server_name: server_name.to_string(),
             });
         }
@@ -174,17 +174,13 @@ impl RateLimiterService {
         };
 
         let key = (org_id, server_id);
+        let window_duration_secs = self.config.window_duration.as_secs();
         
         match self.cache.get(&key) {
             Some(entry) => {
                 let count = entry.count.load(Ordering::SeqCst) as u32;
-                let elapsed = Instant::now().duration_since(entry.window_start);
-                let seconds_until_reset = self
-                    .config
-                    .window_duration
-                    .saturating_sub(elapsed)
-                    .as_secs();
-                let reset_at = chrono::Utc::now().timestamp() + seconds_until_reset as i64;
+                let window_start = entry.window_start_secs.load(Ordering::SeqCst);
+                let reset_at = (window_start + window_duration_secs) as i64;
 
                 RateLimitInfo {
                     limit,
@@ -202,9 +198,11 @@ impl RateLimiterService {
 
     /// Clear expired entries from cache (call periodically)
     pub fn cleanup(&self) {
-        let now = Instant::now();
+        let now_secs = chrono::Utc::now().timestamp() as u64;
+        let ttl_secs = self.config.cache_ttl.as_secs() * 2;
         self.cache.retain(|_, entry| {
-            now.duration_since(entry.window_start) < self.config.cache_ttl * 2
+            let window_start = entry.window_start_secs.load(Ordering::SeqCst);
+            now_secs.saturating_sub(window_start) < ttl_secs
         });
     }
 }
