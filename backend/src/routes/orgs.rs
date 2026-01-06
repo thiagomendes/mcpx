@@ -184,6 +184,24 @@ pub async fn invite_member(
     // Construct invite link (using frontend URL from env ideally, for now assuming relative path logic or returning token)
     let invite_link = format!("{}/join/{}", state.config.frontend_url, invite.token);
 
+    // Record audit log for member invite
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(user_id),
+        crate::services::audit::actions::ORG_MEMBER_ADD,
+        crate::services::audit::resource_types::ORG,
+        Some(invite.id),
+        Some(&payload.email),
+        Some(serde_json::json!({
+            "role": invite.role,
+            "action": "invite_sent"
+        })),
+        None,
+        None,
+    )
+    .await;
+
     Ok(Json(InviteResponse {
         message: "Invite created successfully".to_string(),
         invite_link: Some(invite_link),
@@ -274,6 +292,25 @@ pub async fn join_org(
                     .fetch_one(&state.db.pool)
                     .await
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+            // Record audit log for member joining
+            let _ = crate::services::audit::record_audit_log(
+                &state.db.pool,
+                invite.org_id,
+                Some(user_id),
+                crate::services::audit::actions::ORG_MEMBER_ADD,
+                crate::services::audit::resource_types::ORG,
+                None,
+                Some(&user.email),
+                Some(serde_json::json!({
+                    "role": &m.role,
+                    "action": "joined",
+                    "user_name": &user.name
+                })),
+                None,
+                None,
+            )
+            .await;
 
             Ok(Json(OrgMemberResponse {
                 user_id: m.user_id,
@@ -473,6 +510,17 @@ pub async fn remove_member(
         ));
     }
 
+    // Fetch member info before removal for audit log
+    let member_info: Option<(String, Option<String>, String)> = sqlx::query_as(
+        "SELECT u.email, u.name, om.role FROM org_members om JOIN users u ON u.id = om.user_id WHERE om.org_id = $1 AND om.user_id = $2"
+    )
+        .bind(org_id)
+        .bind(target_user_id)
+        .fetch_optional(&state.db.pool)
+        .await
+        .ok()
+        .flatten();
+
     // 3. Remove member
     let removed =
         crate::services::org::OrgService::remove_member(&state.db.pool, org_id, target_user_id)
@@ -513,6 +561,26 @@ pub async fn remove_member(
             org_id
         );
     }
+
+    // Record audit log for member removal
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(user_id),
+        crate::services::audit::actions::ORG_MEMBER_REMOVE,
+        crate::services::audit::resource_types::ORG,
+        Some(target_user_id),
+        member_info.as_ref().map(|(email, _, _)| email.as_str()),
+        Some(serde_json::json!({
+            "removed_user_id": target_user_id,
+            "removed_user_name": member_info.as_ref().and_then(|(_, name, _)| name.clone()),
+            "role": member_info.as_ref().map(|(_, _, role)| role.as_str()),
+            "pats_deleted": deleted_pats.rows_affected()
+        })),
+        None,
+        None,
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

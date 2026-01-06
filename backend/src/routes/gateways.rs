@@ -500,6 +500,23 @@ pub async fn add_server_to_gateway(
             )
         })?;
 
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::GATEWAY_ADD_SERVER,
+        crate::services::audit::resource_types::GATEWAY,
+        Some(gateway_id),
+        Some(&slug),
+        Some(serde_json::json!({
+            "server_name": &payload.server_name
+        })),
+        None,
+        None,
+    )
+    .await;
+
     Ok(StatusCode::CREATED)
 }
 
@@ -541,6 +558,23 @@ pub async fn remove_server_from_gateway(
                 format!("{}: {}", error::DATABASE_ERROR, e),
             )
         })?;
+
+    // Record audit log
+    let _ = crate::services::audit::record_audit_log(
+        &state.db.pool,
+        org_id,
+        Some(auth.user_id),
+        crate::services::audit::actions::GATEWAY_REMOVE_SERVER,
+        crate::services::audit::resource_types::GATEWAY,
+        Some(gateway_id),
+        Some(&slug),
+        Some(serde_json::json!({
+            "server_name": &server_name
+        })),
+        None,
+        None,
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

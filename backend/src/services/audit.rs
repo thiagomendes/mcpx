@@ -263,6 +263,8 @@ pub mod actions {
     pub const GATEWAY_CREATE: &str = "gateway.create";
     pub const GATEWAY_UPDATE: &str = "gateway.update";
     pub const GATEWAY_DELETE: &str = "gateway.delete";
+    pub const GATEWAY_ADD_SERVER: &str = "gateway.add_server";
+    pub const GATEWAY_REMOVE_SERVER: &str = "gateway.remove_server";
 
     // User actions
     pub const USER_LOGIN: &str = "user.login";
