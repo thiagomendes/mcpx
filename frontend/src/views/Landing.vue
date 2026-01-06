@@ -15,17 +15,11 @@
 
     <!-- Hero Section -->
     <main class="flex-1 relative z-10">
-      <div class="max-w-7xl mx-auto px-6 py-24 text-center">
+      <div class="max-w-7xl mx-auto px-6 py-20 text-center">
         <!-- Logo + Name -->
         <div class="flex flex-col items-center mb-8 animate-fade-in">
           <img src="@/assets/mcpx-logo.svg" alt="mcpx" class="w-20 h-20 object-contain mb-3" />
           <span class="text-3xl font-bold text-white">mcpx</span>
-        </div>
-
-        <!-- Badge -->
-        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-8 animate-fade-in">
-          <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-          <span class="text-sm text-gray-300">Production Ready</span>
         </div>
 
         <!-- Main Headline -->
@@ -42,14 +36,14 @@
         </p>
 
         <!-- CTA Button -->
-        <div class="flex justify-center mb-24 animate-fade-in-up animation-delay-400">
+        <div class="flex justify-center mb-20 animate-fade-in-up animation-delay-400">
           <router-link to="/login" class="btn btn-primary px-10 py-4 text-lg font-semibold rounded-xl shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all hover:scale-105">
             Get Started Free
           </router-link>
         </div>
 
-        <!-- Features Grid -->
-        <div id="features" class="grid md:grid-cols-3 gap-6">
+        <!-- Features Grid - Row 1 -->
+        <div id="features" class="grid md:grid-cols-3 gap-6 mb-6">
           <div class="group card-glass p-8 rounded-2xl hover:scale-105 transition-all duration-300 hover:border-purple-500/50">
             <div class="w-14 h-14 mx-auto mb-6 rounded-xl bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center group-hover:from-purple-500/30 group-hover:to-cyan-500/30 transition-all">
               <LinkIcon class="w-7 h-7 text-purple-400" />
@@ -74,6 +68,33 @@
             <p class="text-gray-400">Audit logs, analytics, and real-time monitoring for every request.</p>
           </div>
         </div>
+
+        <!-- Features Grid - Row 2 -->
+        <div class="grid md:grid-cols-3 gap-6">
+          <div class="group card-glass p-8 rounded-2xl hover:scale-105 transition-all duration-300 hover:border-cyan-500/50">
+            <div class="w-14 h-14 mx-auto mb-6 rounded-xl bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center group-hover:from-purple-500/30 group-hover:to-cyan-500/30 transition-all">
+              <ClockIcon class="w-7 h-7 text-cyan-400" />
+            </div>
+            <h3 class="text-xl font-semibold mb-3 text-white">Rate Limiting</h3>
+            <p class="text-gray-400">Per-server request throttling. Prevent abuse and control costs effortlessly.</p>
+          </div>
+
+          <div class="group card-glass p-8 rounded-2xl hover:scale-105 transition-all duration-300 hover:border-purple-500/50">
+            <div class="w-14 h-14 mx-auto mb-6 rounded-xl bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center group-hover:from-purple-500/30 group-hover:to-cyan-500/30 transition-all">
+              <KeyIcon class="w-7 h-7 text-purple-400" />
+            </div>
+            <h3 class="text-xl font-semibold mb-3 text-white">Flexible Authentication</h3>
+            <p class="text-gray-400">OAuth, API Keys, and Bearer Tokens. Secure your servers the way you need.</p>
+          </div>
+
+          <div class="group card-glass p-8 rounded-2xl hover:scale-105 transition-all duration-300 hover:border-cyan-500/50">
+            <div class="w-14 h-14 mx-auto mb-6 rounded-xl bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center group-hover:from-purple-500/30 group-hover:to-cyan-500/30 transition-all">
+              <ServerStackIcon class="w-7 h-7 text-cyan-400" />
+            </div>
+            <h3 class="text-xl font-semibold mb-3 text-white">Gateway Aggregation</h3>
+            <p class="text-gray-400">Combine multiple servers into one endpoint. Simplify client configuration.</p>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -93,7 +114,10 @@ import { useAuthStore } from '@/stores/auth'
 import { 
   LinkIcon, 
   ShieldCheckIcon, 
-  ChartBarIcon
+  ChartBarIcon,
+  ClockIcon,
+  KeyIcon,
+  ServerStackIcon
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
