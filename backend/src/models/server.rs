@@ -20,6 +20,7 @@ pub struct Server {
     pub oauth_token_url: Option<String>,
     pub oauth_scopes: Option<String>,
     pub oauth_use_pkce: Option<bool>,
+    pub rate_limit_per_minute: Option<i32>,
 
     pub last_health_check: Option<DateTime<Utc>>,
     pub health_error: Option<String>,
@@ -45,6 +46,8 @@ pub struct CreateServerRequest {
     pub oauth_client_id: Option<String>,
     pub oauth_client_secret: Option<String>,
     pub oauth_scopes: Option<String>,
+
+    pub rate_limit_per_minute: Option<i32>,
 }
 
 fn default_transport() -> String {
@@ -62,6 +65,7 @@ pub struct UpdateServerRequest {
     pub transport: Option<String>,
     pub enabled: Option<bool>,
     pub auth_type: Option<String>,
+    pub rate_limit_per_minute: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,6 +80,7 @@ pub struct ServerResponse {
     pub last_health_check: Option<DateTime<Utc>>,
     pub health_error: Option<String>,
     pub proxy_url: String,
+    pub rate_limit_per_minute: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -96,6 +101,7 @@ impl ServerResponse {
             last_health_check: server.last_health_check,
             health_error: server.health_error,
             proxy_url: format!("{}/mcp/{}/{}", base_url, org_slug, server.name),
+            rate_limit_per_minute: server.rate_limit_per_minute,
             created_at: server.created_at,
             updated_at: server.updated_at,
         }
