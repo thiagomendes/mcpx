@@ -74,7 +74,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      VITE_API_URL: http://mcpx-backend:8080
+      VITE_API_URL: http://localhost:8080/api
     depends_on:
       - backend
     volumes:

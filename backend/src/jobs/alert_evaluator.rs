@@ -145,7 +145,7 @@ async fn get_metric_value(pool: &PgPool, rule: &AlertRuleEval) -> Result<f64, sq
         ),
         "avg_latency" => format!(
             r#"
-            SELECT COALESCE(AVG(latency_ms), 0.0) as value
+            SELECT COALESCE(AVG(latency_ms)::float8, 0.0) as value
             FROM request_metrics 
             WHERE time > NOW() - INTERVAL '{}'
             {}
@@ -155,7 +155,7 @@ async fn get_metric_value(pool: &PgPool, rule: &AlertRuleEval) -> Result<f64, sq
         "p95_latency" => format!(
             r#"
             SELECT COALESCE(
-                percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms),
+                percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms)::float8,
                 0.0
             ) as value
             FROM request_metrics 
@@ -177,7 +177,6 @@ async fn get_metric_value(pool: &PgPool, rule: &AlertRuleEval) -> Result<f64, sq
     };
 
     let row = sqlx::query(&query).fetch_one(pool).await?;
-
     let value: f64 = row.try_get("value").unwrap_or(0.0);
     Ok(value)
 }

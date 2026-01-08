@@ -5,7 +5,7 @@
         <div class="modal-header">
           <h2 class="text-xl font-bold flex items-center gap-2">
             <ServerIcon class="w-6 h-6 text-primary" />
-            Configurando "{{ serverName }}"
+            Configuring "{{ serverName }}"
           </h2>
         </div>
         
@@ -19,7 +19,7 @@
                 <ArrowPathIcon v-else-if="currentStep === 1" class="w-5 h-5 text-primary animate-spin" />
                 <div v-else class="w-5 h-5 rounded-full border-2 border-gray-600" />
               </div>
-              <span class="step-text">Salvando servidor no banco</span>
+              <span class="step-text">Saving server to database</span>
             </div>
             
             <!-- Step 2: Test Connectivity -->
@@ -29,7 +29,7 @@
                 <ArrowPathIcon v-else-if="currentStep === 2" class="w-5 h-5 text-primary animate-spin" />
                 <div v-else class="w-5 h-5 rounded-full border-2 border-gray-600" />
               </div>
-              <span class="step-text">Testando conectividade</span>
+              <span class="step-text">Testing connectivity</span>
             </div>
             
             <!-- Step 3: Auth (conditional) -->
@@ -41,7 +41,7 @@
                 <div v-else class="w-5 h-5 rounded-full border-2 border-gray-600" />
               </div>
               <span class="step-text">
-                {{ currentStep === 3 && !authStarted ? 'Autorização OAuth necessária' : 'Autenticação OAuth' }}
+                {{ currentStep === 3 && !authStarted ? 'OAuth authorization required' : 'OAuth Authentication' }}
               </span>
             </div>
             
@@ -53,7 +53,7 @@
                 <div v-else class="w-5 h-5 rounded-full border-2 border-gray-600" />
               </div>
               <span class="step-text">
-                {{ toolsLoaded ? `Tools carregadas (${toolsCount})` : 'Carregando tools' }}
+                {{ toolsLoaded ? `Tools loaded (${toolsCount})` : 'Loading tools' }}
               </span>
             </div>
           </div>
@@ -61,15 +61,15 @@
           <!-- Auth Required Alert -->
           <div v-if="currentStep === 3 && !authStarted && requiresAuth && !skippedAuth" class="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
             <p class="text-yellow-400 text-sm mb-3">
-              Este servidor requer autorização OAuth. Clique abaixo para autorizar.
+              This server requires OAuth authorization. Click below to authorize.
             </p>
             <div class="flex gap-2">
-              <button @click="startAuth" class="btn btn-primary">
-                <LockOpenIcon class="w-4 h-4" />
-                Autorizar Agora
+              <button @click="startAuth" class="btn btn-primary inline-flex items-center gap-2 whitespace-nowrap">
+                <LockOpenIcon class="w-4 h-4 flex-shrink-0" />
+                <span>Authorize Now</span>
               </button>
               <button @click="skipAuth" class="btn btn-ghost text-yellow-400">
-                Fazer Depois
+                Do Later
               </button>
             </div>
           </div>
@@ -78,28 +78,28 @@
           <div v-if="error && currentStep !== 3" class="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
             <p class="text-red-400 text-sm mb-3">{{ error }}</p>
             <div class="flex gap-2">
-              <button @click="retry" class="btn btn-ghost text-sm">Tentar Novamente</button>
-              <button @click="goToServer" class="btn btn-primary text-sm">Ir para Servidor</button>
+              <button @click="retry" class="btn btn-ghost text-sm">Retry</button>
+              <button @click="goToServer" class="btn btn-primary text-sm">Go to Server</button>
             </div>
           </div>
           
           <!-- Success State -->
           <div v-if="isComplete" class="mt-6 p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
             <p class="text-green-400 text-sm mb-3">
-              ✓ Servidor configurado com sucesso!
+              ✓ Server configured successfully!
             </p>
             <button @click="goToServer" class="btn btn-primary">
-              Ir para Servidor
+              Go to Server
             </button>
           </div>
           
           <!-- Pending Auth State (skipped OAuth) -->
           <div v-if="skippedAuth" class="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
             <p class="text-yellow-400 text-sm mb-3">
-              ⚠ Servidor cadastrado com pendências. Autorize o OAuth na página do servidor.
+              ⚠ Server registered with pending authorization. Authorize OAuth on the server page.
             </p>
             <button @click="goToServer" class="btn btn-primary">
-              Ir para Servidor
+              Go to Server
             </button>
           </div>
         </div>
@@ -194,7 +194,7 @@ async function startSetup() {
     await testConnectivity()
     
   } catch (e: unknown) {
-    const errMsg = e instanceof Error ? e.message : 'Erro ao criar servidor'
+    const errMsg = e instanceof Error ? e.message : 'Failed to create server'
     error.value = errMsg
   }
 }
@@ -217,7 +217,7 @@ async function testConnectivity() {
         error.value = null
         currentStep.value = 3
       } else {
-        error.value = msg || 'Falha na conexão'
+        error.value = msg || 'Connection failed'
       }
     }
   } catch (e: unknown) {
@@ -226,7 +226,7 @@ async function testConnectivity() {
       error.value = null
       currentStep.value = 3
     } else {
-      const errMsg = e instanceof Error ? e.message : 'Erro ao testar conexão'
+      const errMsg = e instanceof Error ? e.message : 'Failed to test connection'
       error.value = errMsg
     }
   }
@@ -282,14 +282,14 @@ async function startAuth() {
         toolsCount.value = testResult.data.tools?.length || 0
         currentStep.value = 5
       } else {
-        error.value = testResult.data.message || 'Falha ao carregar tools'
+        error.value = testResult.data.message || 'Failed to load tools'
       }
     } else {
-      error.value = result.error || 'Falha na autorização OAuth'
+      error.value = result.error || 'OAuth authorization failed'
     }
   } catch (e: unknown) {
     authStarted.value = false
-    const errMsg = e instanceof Error ? e.message : 'Falha na autorização OAuth'
+    const errMsg = e instanceof Error ? e.message : 'OAuth authorization failed'
     error.value = errMsg
   }
 }
