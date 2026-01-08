@@ -141,7 +141,7 @@ import { onMounted, ref, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import { useGatewaysStore } from '@/stores/gateways'
-import { useAuthStore } from '@/stores/auth'
+
 import { usePermissions } from '@/composables/usePermissions'
 import { 
   RectangleStackIcon, 
@@ -153,7 +153,7 @@ import {
 
 const route = useRoute()
 const gatewaysStore = useGatewaysStore()
-const authStore = useAuthStore()
+
 const { canWrite } = usePermissions()
 const showCreateModal = ref(false)
 const creating = ref(false)
@@ -163,14 +163,11 @@ const limitInfo = ref({ current: 0, max: 0 })
 
 async function checkLimits() {
   try {
-    const response = await fetch('/api/limits', {
-      headers: { 'Authorization': `Bearer ${authStore.token}` }
-    })
-    if (response.ok) {
-      const data = await response.json()
-      limitInfo.value = { current: data.gateways.current, max: data.gateways.max }
-      limitReached.value = !data.gateways.can_create
-    }
+    const api = (await import('@/api/client')).default
+    const response = await api.get('/limits')
+    const data = response.data
+    limitInfo.value = { current: data.gateways.current, max: data.gateways.max }
+    limitReached.value = !data.gateways.can_create
   } catch (e) {
     console.error('Failed to check limits:', e)
   }

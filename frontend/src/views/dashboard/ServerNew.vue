@@ -311,7 +311,6 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
 import DashboardLayout from '@/components/layout/DashboardLayout.vue'
 import InfoTooltip from '@/components/ui/InfoTooltip.vue'
 import ServerSetupModal from '@/components/ui/ServerSetupModal.vue'
@@ -328,7 +327,6 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
-const authStore = useAuthStore()
 
 const form = reactive({
   name: '',
@@ -360,14 +358,11 @@ onMounted(async () => {
 
 async function checkLimits() {
   try {
-    const response = await fetch('/api/limits', {
-      headers: { 'Authorization': `Bearer ${authStore.token}` }
-    })
-    if (response.ok) {
-      const data = await response.json()
-      limitInfo.value = { current: data.servers.current, max: data.servers.max }
-      limitReached.value = !data.servers.can_create
-    }
+    const api = (await import('@/api/client')).default
+    const response = await api.get('/limits')
+    const data = response.data
+    limitInfo.value = { current: data.servers.current, max: data.servers.max }
+    limitReached.value = !data.servers.can_create
   } catch (e) {
     console.error('Failed to check limits:', e)
   }

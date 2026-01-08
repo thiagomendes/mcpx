@@ -274,7 +274,6 @@ import {
   NoSymbolIcon
 } from '@heroicons/vue/24/outline'
 import api from '@/api/client'
-import { useAuthStore } from '@/stores/auth'
 import { usePermissions } from '@/composables/usePermissions'
 
 interface ServiceAccount {
@@ -296,9 +295,9 @@ interface NewCredentials {
   scopes: string[]
 }
 
-const apiUrl = window.location.origin.replace(':3000', ':8080')
+const apiUrl = import.meta.env.VITE_API_URL || window.location.origin
 
-const authStore = useAuthStore()
+
 const { canWrite } = usePermissions()
 const accounts = ref<ServiceAccount[]>([])
 const loading = ref(true)
@@ -316,14 +315,10 @@ const limitInfo = ref({ current: 0, max: 0 })
 
 async function checkLimits() {
   try {
-    const response = await fetch('/api/limits', {
-      headers: { 'Authorization': `Bearer ${authStore.token}` }
-    })
-    if (response.ok) {
-      const data = await response.json()
-      limitInfo.value = { current: data.service_accounts.current, max: data.service_accounts.max }
-      limitReached.value = !data.service_accounts.can_create
-    }
+    const response = await api.get('/limits')
+    const data = response.data
+    limitInfo.value = { current: data.service_accounts.current, max: data.service_accounts.max }
+    limitReached.value = !data.service_accounts.can_create
   } catch (e) {
     console.error('Failed to check limits:', e)
   }

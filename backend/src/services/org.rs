@@ -150,7 +150,39 @@ impl OrgService {
             .execute(pool)
             .await?;
 
+        // Initialize default settings for the new org
+        Self::init_default_settings(pool, org.id).await?;
+
         Ok(org)
+    }
+
+    /// Initialize default settings for a new organization
+    async fn init_default_settings(pool: &PgPool, org_id: Uuid) -> Result<(), sqlx::Error> {
+        let settings = vec![
+            ("jwt_expiry_days", "30", "integer", "How long user login sessions last before requiring re-authentication."),
+            ("m2m_token_expiry_hours", "1", "integer", "How long Service Account (M2M) tokens are valid."),
+            ("max_servers_per_org", "100", "integer", "Maximum number of MCP servers allowed per organization."),
+            ("max_gateways_per_org", "50", "integer", "Maximum number of gateways allowed per organization."),
+            ("max_pats_per_user", "10", "integer", "Maximum Personal Access Tokens per user."),
+            ("max_service_accounts_per_org", "20", "integer", "Maximum service accounts per organization."),
+        ];
+
+        for (key, value, setting_type, description) in settings {
+            sqlx::query(
+                r#"INSERT INTO org_settings (org_id, setting_key, setting_value, setting_type, description)
+                   VALUES ($1, $2, $3, $4, $5)
+                   ON CONFLICT (org_id, setting_key) DO NOTHING"#
+            )
+            .bind(org_id)
+            .bind(key)
+            .bind(value)
+            .bind(setting_type)
+            .bind(description)
+            .execute(pool)
+            .await?;
+        }
+
+        Ok(())
     }
 
     /// Create a personal workspace for a new user

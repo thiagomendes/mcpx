@@ -41,3 +41,21 @@ impl Config {
         })
     }
 }
+
+/// Simplified config for worker service (no OAuth required)
+#[derive(Clone, Debug)]
+pub struct WorkerConfig {
+    pub database_url: String,
+    pub encryption_key: String,
+}
+
+impl WorkerConfig {
+    pub fn from_env() -> Result<Self, env::VarError> {
+        Ok(Self {
+            database_url: env::var("DATABASE_URL")?,
+            encryption_key: env::var("ENCRYPTION_KEY")
+                .or_else(|_| env::var("JWT_SECRET"))
+                .unwrap_or_else(|_| "default-encryption-key".to_string()),
+        })
+    }
+}

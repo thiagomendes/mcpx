@@ -17,7 +17,7 @@
 //! 3. Add migration to insert into `job_schedules`
 
 use mcpx_backend::{
-    config::Config,
+    config::WorkerConfig,
     jobs::handlers::{create_job_registry, JobContext},
     services::{
         db::Database,
@@ -42,7 +42,7 @@ async fn main() {
     dotenvy::dotenv().ok();
 
     // Load config
-    let config = match Config::from_env() {
+    let config = match WorkerConfig::from_env() {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("Failed to load config: {:?}", e);

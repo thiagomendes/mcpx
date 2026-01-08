@@ -202,7 +202,6 @@ import {
   NoSymbolIcon
 } from '@heroicons/vue/24/outline'
 import api from '@/api/client'
-import { useAuthStore } from '@/stores/auth'
 import { usePermissions } from '@/composables/usePermissions'
 
 interface Token {
@@ -215,7 +214,7 @@ interface Token {
   created_at: string
 }
 
-const authStore = useAuthStore()
+
 usePermissions() // For permission checks if needed
 const tokens = ref<Token[]>([])
 const loading = ref(true)
@@ -233,14 +232,10 @@ const limitInfo = ref({ current: 0, max: 0 })
 
 async function checkLimits() {
   try {
-    const response = await fetch('/api/limits', {
-      headers: { 'Authorization': `Bearer ${authStore.token}` }
-    })
-    if (response.ok) {
-      const data = await response.json()
-      limitInfo.value = { current: data.pats.current, max: data.pats.max }
-      limitReached.value = !data.pats.can_create
-    }
+    const response = await api.get('/limits')
+    const data = response.data
+    limitInfo.value = { current: data.pats.current, max: data.pats.max }
+    limitReached.value = !data.pats.can_create
   } catch (e) {
     console.error('Failed to check limits:', e)
   }

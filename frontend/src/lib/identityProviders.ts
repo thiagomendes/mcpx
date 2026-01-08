@@ -17,7 +17,7 @@ export interface IdentityProviderConfig {
     hoverColor: string;
 }
 
-const BACKEND_BASE = '/api';
+const BACKEND_BASE = import.meta.env.VITE_API_URL || '/api';
 
 export const IDENTITY_PROVIDERS: Record<IdentityProviderType, IdentityProviderConfig> = {
     google: {
