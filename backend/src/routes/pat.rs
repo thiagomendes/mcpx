@@ -324,10 +324,12 @@ pub async fn delete_token(
         crate::services::audit::resource_types::TOKEN,
         Some(token_id),
         token.as_ref().map(|t| t.name.as_str()),
-        token.as_ref().map(|t| serde_json::json!({
-            "token_prefix": &t.token_prefix,
-            "scopes": &t.scopes
-        })),
+        token.as_ref().map(|t| {
+            serde_json::json!({
+                "token_prefix": &t.token_prefix,
+                "scopes": &t.scopes
+            })
+        }),
         None,
         None,
     )

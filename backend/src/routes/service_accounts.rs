@@ -425,11 +425,13 @@ pub async fn delete_service_account(
         crate::services::audit::resource_types::SERVICE_ACCOUNT,
         Some(account_id),
         account.as_ref().map(|a| a.name.as_str()),
-        account.as_ref().map(|a| serde_json::json!({
-            "client_id": &a.client_id,
-            "scopes": &a.scopes,
-            "enabled": a.enabled
-        })),
+        account.as_ref().map(|a| {
+            serde_json::json!({
+                "client_id": &a.client_id,
+                "scopes": &a.scopes,
+                "enabled": a.enabled
+            })
+        }),
         None,
         None,
     )

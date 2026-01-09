@@ -111,8 +111,8 @@ type AuditListDbRow = (
     String,
     Option<Uuid>,
     Option<String>,
-    Option<String>,  // user_name
-    Option<String>,  // user_email
+    Option<String>, // user_name
+    Option<String>, // user_email
 );
 
 type AuditDetailDbRow = (
@@ -126,8 +126,8 @@ type AuditDetailDbRow = (
     Option<serde_json::Value>,
     Option<String>,
     Option<String>,
-    Option<String>,  // user_name
-    Option<String>,  // user_email
+    Option<String>, // user_name
+    Option<String>, // user_email
 );
 
 /// List audit logs with pagination and filters

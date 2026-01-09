@@ -411,11 +411,13 @@ pub async fn delete_server(
         crate::services::audit::resource_types::SERVER,
         server.as_ref().map(|s| s.id),
         Some(&name),
-        server.as_ref().map(|s| serde_json::json!({
-            "url": &s.url,
-            "transport": &s.transport,
-            "auth_type": &s.auth_type
-        })),
+        server.as_ref().map(|s| {
+            serde_json::json!({
+                "url": &s.url,
+                "transport": &s.transport,
+                "auth_type": &s.auth_type
+            })
+        }),
         None,
         None,
     )

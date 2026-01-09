@@ -44,7 +44,7 @@ impl std::fmt::Display for RateLimitExceeded {
             self.server_name, self.limit
         )
     }
-}  
+}
 
 impl std::error::Error for RateLimitExceeded {}
 
@@ -85,7 +85,7 @@ impl RateLimiterService {
 
     /// Check rate limit and increment counter
     /// Returns Ok(info) if allowed, Err(exceeded) if rate limited
-    /// 
+    ///
     /// If `limit` is None, no rate limiting is applied (returns Ok with unlimited info)
     pub fn check_and_increment(
         &self,
@@ -120,7 +120,7 @@ impl RateLimiterService {
         // Check if window has expired and reset if needed
         let window_start = entry.window_start_secs.load(Ordering::SeqCst);
         let elapsed = now_secs.saturating_sub(window_start);
-        
+
         if elapsed >= window_duration_secs {
             // Window expired - reset both counter and window start atomically
             entry.window_start_secs.store(now_secs, Ordering::SeqCst);
@@ -156,12 +156,7 @@ impl RateLimiterService {
     }
 
     /// Get current rate limit info without incrementing
-    pub fn get_info(
-        &self,
-        org_id: Uuid,
-        server_id: Uuid,
-        limit: Option<i32>,
-    ) -> RateLimitInfo {
+    pub fn get_info(&self, org_id: Uuid, server_id: Uuid, limit: Option<i32>) -> RateLimitInfo {
         let limit = match limit {
             Some(l) if l > 0 => l as u32,
             _ => {
@@ -175,7 +170,7 @@ impl RateLimiterService {
 
         let key = (org_id, server_id);
         let window_duration_secs = self.config.window_duration.as_secs();
-        
+
         match self.cache.get(&key) {
             Some(entry) => {
                 let count = entry.count.load(Ordering::SeqCst) as u32;
@@ -270,7 +265,9 @@ mod tests {
 
         // Hit limit on server1
         for _ in 0..5 {
-            service.check_and_increment(org_id, server1, "server1", Some(5)).unwrap();
+            service
+                .check_and_increment(org_id, server1, "server1", Some(5))
+                .unwrap();
         }
 
         // server2 should still work
