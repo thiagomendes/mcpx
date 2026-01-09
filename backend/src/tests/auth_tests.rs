@@ -2,45 +2,41 @@
 //!
 //! Tests PAT, M2M JWT, and Web Session JWT authentication flows
 
+#[allow(unused_imports)]
 use std::sync::Arc;
 
-#[cfg(test)]
-mod auth_tests {
-    use super::*;
+/// Test that PAT tokens are correctly identified by prefix
+#[test]
+fn test_pat_token_detection() {
+    let pat = "mcpx_pat_abc123xyz";
+    assert!(pat.starts_with("mcpx_pat_"));
+}
 
-    /// Test that PAT tokens are correctly identified by prefix
-    #[test]
-    fn test_pat_token_detection() {
-        let pat = "mcpx_pat_abc123xyz";
-        assert!(pat.starts_with("mcpx_pat_"));
-    }
+/// Test that M2M tokens start with JWT prefix
+#[test]
+fn test_jwt_token_detection() {
+    let jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.xxx";
+    assert!(jwt.starts_with("ey"));
+}
 
-    /// Test that M2M tokens start with JWT prefix
-    #[test]
-    fn test_jwt_token_detection() {
-        let jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.xxx";
-        assert!(jwt.starts_with("ey"));
-    }
+/// Test token type routing logic
+#[test]
+fn test_token_type_routing() {
+    let tokens = vec![
+        ("mcpx_pat_test123", "PAT"),
+        ("eyJhbGciOiJIUzI1NiJ9.xxx", "JWT"),
+        ("invalid_token", "INVALID"),
+    ];
 
-    /// Test token type routing logic
-    #[test]
-    fn test_token_type_routing() {
-        let tokens = vec![
-            ("mcpx_pat_test123", "PAT"),
-            ("eyJhbGciOiJIUzI1NiJ9.xxx", "JWT"),
-            ("invalid_token", "INVALID"),
-        ];
-
-        for (token, expected_type) in tokens {
-            let detected = if token.starts_with("mcpx_pat_") {
-                "PAT"
-            } else if token.starts_with("ey") {
-                "JWT"
-            } else {
-                "INVALID"
-            };
-            assert_eq!(detected, expected_type, "Token: {}", token);
-        }
+    for (token, expected_type) in tokens {
+        let detected = if token.starts_with("mcpx_pat_") {
+            "PAT"
+        } else if token.starts_with("ey") {
+            "JWT"
+        } else {
+            "INVALID"
+        };
+        assert_eq!(detected, expected_type, "Token: {}", token);
     }
 }
 

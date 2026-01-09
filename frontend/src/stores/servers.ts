@@ -14,6 +14,7 @@ export interface Server {
     last_health_check: string | null
     health_error: string | null
     proxy_url: string
+    rate_limit_per_minute: number | null
     created_at: string
     updated_at: string
 }

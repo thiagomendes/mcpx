@@ -316,16 +316,26 @@ async fn handle_server_proxy(
     // Check rate limit (only if configured - NULL means unlimited)
     let _rate_info = state
         .rate_limiter
-        .check_and_increment(server.org_id, server.id, &server.name, server.rate_limit_per_minute)
+        .check_and_increment(
+            server.org_id,
+            server.id,
+            &server.name,
+            server.rate_limit_per_minute,
+        )
         .map_err(|e| {
-            tracing::warn!("Rate limit exceeded: server={}, limit={}", server.name, e.limit);
+            tracing::warn!(
+                "Rate limit exceeded: server={}, limit={}",
+                server.name,
+                e.limit
+            );
             (
                 StatusCode::TOO_MANY_REQUESTS,
                 serde_json::json!({
                     "error": "rate_limit_exceeded",
                     "message": e.to_string(),
                     "retry_after": e.retry_after
-                }).to_string(),
+                })
+                .to_string(),
             )
         })?;
 
@@ -1086,16 +1096,26 @@ async fn handle_gateway_tools_call(
         // Check rate limit for this server (if configured)
         state
             .rate_limiter
-            .check_and_increment(server.org_id, server.id, &server.name, server.rate_limit_per_minute)
+            .check_and_increment(
+                server.org_id,
+                server.id,
+                &server.name,
+                server.rate_limit_per_minute,
+            )
             .map_err(|e| {
-                tracing::warn!("Rate limit exceeded via gateway: server={}, limit={}", server.name, e.limit);
+                tracing::warn!(
+                    "Rate limit exceeded via gateway: server={}, limit={}",
+                    server.name,
+                    e.limit
+                );
                 (
                     StatusCode::TOO_MANY_REQUESTS,
                     serde_json::json!({
                         "error": "rate_limit_exceeded",
                         "message": e.to_string(),
                         "retry_after": e.retry_after
-                    }).to_string(),
+                    })
+                    .to_string(),
                 )
             })?;
 

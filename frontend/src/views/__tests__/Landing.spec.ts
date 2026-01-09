@@ -13,6 +13,14 @@ vi.mock('vue-router', () => ({
     }
 }))
 
+// Mock API client
+vi.mock('@/api/client', () => ({
+    default: {
+        get: vi.fn().mockResolvedValue({ data: {} }),
+        post: vi.fn().mockResolvedValue({ data: {} }),
+    }
+}))
+
 // Mock auth store
 vi.mock('@/stores/auth', () => ({
     useAuthStore: vi.fn(() => ({
@@ -56,7 +64,7 @@ describe('Landing.vue', () => {
 
         expect(wrapper.exists()).toBe(true)
         expect(wrapper.text()).toContain('MCP Gateway')
-        expect(wrapper.text()).toContain('for Production')
+        expect(wrapper.text()).toContain('for Enterprise')
     })
 
     it('displays feature cards', () => {
@@ -73,7 +81,7 @@ describe('Landing.vue', () => {
 
         expect(wrapper.text()).toContain('Connect Instantly')
         expect(wrapper.text()).toContain('Tool Governance')
-        expect(wrapper.text()).toContain('Complete Observability')
+        expect(wrapper.text()).toContain('Full Observability')
     })
 
     it('has start free navigation', () => {

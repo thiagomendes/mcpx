@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::messages::error;
 use crate::middleware::auth::AuthUser;
-use crate::services::audit::{self, AuditLogListResponse, AuditLogDetail, AuditLogQuery};
+use crate::services::audit::{self, AuditLogDetail, AuditLogListResponse, AuditLogQuery};
 use crate::AppState;
 
 /// GET /api/audit-logs

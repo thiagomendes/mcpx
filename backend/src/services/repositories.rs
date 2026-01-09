@@ -273,11 +273,17 @@ pub mod mocks {
         pub find_result: Mutex<Option<PatData>>,
     }
 
-    impl MockPatRepository {
-        pub fn new() -> Self {
+    impl Default for MockPatRepository {
+        fn default() -> Self {
             Self {
                 find_result: Mutex::new(None),
             }
+        }
+    }
+
+    impl MockPatRepository {
+        pub fn new() -> Self {
+            Self::default()
         }
 
         pub fn with_pat(pat: PatData) -> Self {
@@ -303,11 +309,17 @@ pub mod mocks {
         pub validate_result: Mutex<Option<ServiceAccountData>>,
     }
 
-    impl MockServiceAccountRepository {
-        pub fn new() -> Self {
+    impl Default for MockServiceAccountRepository {
+        fn default() -> Self {
             Self {
                 validate_result: Mutex::new(None),
             }
+        }
+    }
+
+    impl MockServiceAccountRepository {
+        pub fn new() -> Self {
+            Self::default()
         }
 
         pub fn with_account(account: ServiceAccountData) -> Self {
@@ -343,13 +355,19 @@ pub mod mocks {
         pub role: Mutex<Option<String>>,
     }
 
-    impl MockOrgRepository {
-        pub fn new() -> Self {
+    impl Default for MockOrgRepository {
+        fn default() -> Self {
             Self {
                 org: Mutex::new(None),
                 memberships: Mutex::new(vec![]),
                 role: Mutex::new(None),
             }
+        }
+    }
+
+    impl MockOrgRepository {
+        pub fn new() -> Self {
+            Self::default()
         }
 
         pub fn with_org(org: OrgData) -> Self {
@@ -398,12 +416,18 @@ pub mod mocks {
         pub servers: Mutex<Vec<ServerData>>,
     }
 
-    impl MockServerRepository {
-        pub fn new() -> Self {
+    impl Default for MockServerRepository {
+        fn default() -> Self {
             Self {
                 server: Mutex::new(None),
                 servers: Mutex::new(vec![]),
             }
+        }
+    }
+
+    impl MockServerRepository {
+        pub fn new() -> Self {
+            Self::default()
         }
 
         pub fn with_server(server: ServerData) -> Self {
@@ -447,13 +471,19 @@ pub mod mocks {
         pub servers: Mutex<Vec<GatewayServerData>>,
     }
 
-    impl MockGatewayRepository {
-        pub fn new() -> Self {
+    impl Default for MockGatewayRepository {
+        fn default() -> Self {
             Self {
                 gateway: Mutex::new(None),
                 gateways: Mutex::new(vec![]),
                 servers: Mutex::new(vec![]),
             }
+        }
+    }
+
+    impl MockGatewayRepository {
+        pub fn new() -> Self {
+            Self::default()
         }
 
         pub fn with_gateway(gateway: GatewayData) -> Self {
