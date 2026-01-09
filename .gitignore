@@ -1,0 +1,48 @@
+# Binaries
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+test_output.txt
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Backend
+backend/target/
+
+# Legacy
+web/node_modules/
+web/.nuxt/
+k8s/overlays/local/secrets.local.yaml
+k8s/overlays/local-https/secrets.local.yaml

@@ -1,0 +1,120 @@
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: mcpx-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mcpx
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: web
+    container_name: mcpx-backend
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mcpx
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-not-configured}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-not-configured}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-not-configured}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-not-configured}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-not-configured}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-not-configured}
+      JWT_SECRET: ${JWT_SECRET:-mcpx-dev-secret-change-in-production}
+      FRONTEND_URL: http://localhost:3000
+      BASE_URL: http://localhost:8080
+      BACKEND_PORT: 8080
+      RUST_LOG: info
+      DEV_MODE: ${DEV_MODE:-false}
+      DEV_USER_ID: ${DEV_USER_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Background job worker (separate service)
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: worker
+    container_name: mcpx-worker
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mcpx
+      JWT_SECRET: ${JWT_SECRET:-mcpx-dev-secret-change-in-production}
+      # ENCRYPTION_KEY: Config falls back to JWT_SECRET automatically
+      # Required by Config but not used by worker
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-not-used}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-not-used}
+      RUST_LOG: info,mcpx_worker=debug
+      MCPX_WORKER_ID: worker-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mcpx-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: http://localhost:8080/api
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  # =============================================================================
+  # Example MCP Servers for Testing
+  # =============================================================================
+
+  # Weather MCP Server - API Key Authentication
+  # X-API-Key: weather-api-key-12345
+  weather-mcp:
+    build: ./mcp-servers-examples/weather
+    container_name: weather-mcp
+    ports:
+      - "8001:8000"
+    environment:
+      - API_KEY=weather-api-key-12345
+
+  # Utilities MCP Server - Bearer Token Authentication
+  # Authorization: Bearer utilities-token-secret-67890
+  utilities-mcp:
+    build: ./mcp-servers-examples/utilities-mcp
+    container_name: utilities-mcp
+    ports:
+      - "8002:8000"
+    environment:
+      - BEARER_TOKEN=utilities-token-secret-67890
+
+  # Filesystem MCP Server - OAuth Client Credentials
+  # POST /token with client_id and client_secret to get access_token
+  filesystem-mcp:
+    build: ./mcp-servers-examples/filesystem-mcp
+    container_name: filesystem-mcp
+    ports:
+      - "8003:8000"
+    environment:
+      - CLIENT_ID=filesystem-client
+      - CLIENT_SECRET=filesystem-secret-abc123
+
+volumes:
+  postgres_data:

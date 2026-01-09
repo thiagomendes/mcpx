@@ -1,0 +1,15 @@
+# Certificate for mcpx local HTTPS
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mcpx-tls
+  namespace: mcpx
+spec:
+  secretName: mcpx-tls-secret
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    - mcpx.127.0.0.1.nip.io
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # 30 days

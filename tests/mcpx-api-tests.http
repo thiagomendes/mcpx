@@ -1,0 +1,653 @@
+### MCPX API Testing - Complete Endpoint Coverage
+### Replace tokens below before running
+
+@baseUrl = http://localhost:8080
+
+### ========================================
+### TOKENS - Fill these in before testing
+### ========================================
+
+# M2M Admin Token (get via /api/auth/token)
+@m2m_admin = YOUR_M2M_ADMIN_JWT_HERE
+
+# M2M Member Token (get via /api/auth/token)
+@m2m_member = YOUR_M2M_MEMBER_JWT_HERE
+
+# PAT Owner
+@pat_owner = mcpx_pat_EzVBLfdJxiPsvSX7DZelTpwnUwc0MpM1
+
+# PAT Admin
+@pat_admin = mcpx_pat_u6uUJtie9dYFfOCKGpyEFMvZtW7xxHBx
+
+# PAT Member
+@pat_member = mcpx_pat_xinfeb3sZDK6GR0qdkb1X2LbOam58Cm8
+
+### ========================================
+### GET M2M TOKENS (run these first)
+### ========================================
+
+### Get M2M Admin Token
+# @name getM2MAdmin
+POST {{baseUrl}}/api/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=mcpx_sa_LjZeLB1w3L7ysslG0nIJqOSK0kXIZS1u&client_secret=mcpx_secret_gNRv8IYcdhPaYs4bcoxi1yVFvGLKaGjf1NDoiMyRaNSNQ182
+
+###
+
+### Get M2M Member Token
+# @name getM2MMember
+POST {{baseUrl}}/api/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=mcpx_sa_6B4RUdnDeKIdeOQvM4sb9XBW21w9Wvjc&client_secret=mcpx_secret_4LhQr78zuszHnPWbFa1zdlCDP3TUI3hBg3CaKnsFKthvrDx4
+
+###
+
+### ========================================
+### SERVERS - READ (expect 200 all)
+### ========================================
+
+### List Servers - M2M Admin
+GET {{baseUrl}}/api/servers
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### List Servers - M2M Member
+GET {{baseUrl}}/api/servers
+Authorization: Bearer {{m2m_member}}
+
+###
+
+### List Servers - PAT Owner
+GET {{baseUrl}}/api/servers
+Authorization: Bearer {{pat_owner}}
+
+###
+
+### List Servers - PAT Member
+GET {{baseUrl}}/api/servers
+Authorization: Bearer {{pat_member}}
+
+###
+
+### Get Server - M2M Admin
+GET {{baseUrl}}/api/servers/weather-local-org
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### ========================================
+### SERVERS - WRITE (expect 403 member)
+### ========================================
+
+### Create Server - M2M Admin (expect 201)
+POST {{baseUrl}}/api/servers
+Authorization: Bearer {{m2m_admin}}
+Content-Type: application/json
+
+{
+    "name": "test-server-admin",
+    "url": "http://test-server.local",
+    "transport": "http"
+}
+
+###
+
+### Create Server - M2M Member (expect 403)
+POST {{baseUrl}}/api/servers
+Authorization: Bearer {{m2m_member}}
+Content-Type: application/json
+
+{
+    "name": "test-server-member",
+    "url": "http://test-server.local",
+    "transport": "http"
+}
+
+###
+
+### Create Server - PAT Owner (expect 201)
+POST {{baseUrl}}/api/servers
+Authorization: Bearer {{pat_owner}}
+Content-Type: application/json
+
+{
+    "name": "test-server-owner",
+    "url": "http://test-server.local",
+    "transport": "http"
+}
+
+###
+
+### Create Server - PAT Member (expect 403)
+POST {{baseUrl}}/api/servers
+Authorization: Bearer {{pat_member}}
+Content-Type: application/json
+
+{
+    "name": "test-server-patmem",
+    "url": "http://test-server.local",
+    "transport": "http"
+}
+
+###
+
+### Update Server - M2M Admin (expect 200)
+PUT {{baseUrl}}/api/servers/test-server-admin
+Authorization: Bearer {{m2m_admin}}
+Content-Type: application/json
+
+{
+    "enabled": true
+}
+
+###
+
+### Delete Server - M2M Member (expect 403)
+DELETE {{baseUrl}}/api/servers/test-server-admin
+Authorization: Bearer {{m2m_member}}
+
+###
+
+### Delete Server - M2M Admin (expect 204)
+DELETE {{baseUrl}}/api/servers/test-server-admin
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### Delete Server - PAT Owner (expect 204)
+DELETE {{baseUrl}}/api/servers/test-server-owner
+Authorization: Bearer {{pat_owner}}
+
+###
+
+### ========================================
+### SERVER CREDENTIALS
+### ========================================
+
+### List Credentials - M2M Admin
+GET {{baseUrl}}/api/servers/weather-local-org/credentials
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### ========================================
+### SERVER GOVERNANCE
+### ========================================
+
+### Get Governance - M2M Member
+GET {{baseUrl}}/api/servers/weather-local-org/governance
+Authorization: Bearer {{m2m_member}}
+
+###
+
+### Set Governance - M2M Admin (expect 200)
+POST {{baseUrl}}/api/servers/weather-local-org/governance
+Authorization: Bearer {{m2m_admin}}
+Content-Type: application/json
+
+{
+    "tool_prefix": "test_",
+    "allowed_tools": [],
+    "denied_tools": []
+}
+
+###
+
+### Set Governance - M2M Member (expect 403)
+POST {{baseUrl}}/api/servers/weather-local-org/governance
+Authorization: Bearer {{m2m_member}}
+Content-Type: application/json
+
+{
+    "tool_prefix": "member_"
+}
+
+###
+
+### ========================================
+### GATEWAYS - READ
+### ========================================
+
+### List Gateways - M2M Admin
+GET {{baseUrl}}/api/gateways
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### List Gateways - PAT Member
+GET {{baseUrl}}/api/gateways
+Authorization: Bearer {{pat_member}}
+
+###
+
+### Get Gateway - M2M Member
+GET {{baseUrl}}/api/gateways/tmdevlab-gateway
+Authorization: Bearer {{m2m_member}}
+
+###
+
+### List Gateway Tools - M2M Admin
+GET {{baseUrl}}/api/gateways/tmdevlab-gateway/tools
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### ========================================
+### GATEWAYS - WRITE
+### ========================================
+
+### Create Gateway - M2M Admin (expect 201)
+POST {{baseUrl}}/api/gateways
+Authorization: Bearer {{m2m_admin}}
+Content-Type: application/json
+
+{
+    "name": "Test Gateway",
+    "slug": "test-gateway"
+}
+
+###
+
+### Create Gateway - PAT Member (expect 403)
+POST {{baseUrl}}/api/gateways
+Authorization: Bearer {{pat_member}}
+Content-Type: application/json
+
+{
+    "name": "Member Gateway",
+    "slug": "member-gateway"
+}
+
+###
+
+### Delete Gateway - M2M Admin
+DELETE {{baseUrl}}/api/gateways/test-gateway
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### ========================================
+### PERSONAL ACCESS TOKENS (PAT)
+### ========================================
+
+### List Tokens - M2M Admin
+GET {{baseUrl}}/api/tokens
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### List Tokens - PAT Member (sees own tokens only)
+GET {{baseUrl}}/api/tokens
+Authorization: Bearer {{pat_member}}
+
+###
+
+### Create Token - PAT Member (self-service, expect 201)
+POST {{baseUrl}}/api/tokens
+Authorization: Bearer {{pat_member}}
+Content-Type: application/json
+
+{
+    "name": "my-new-token"
+}
+
+###
+
+### ========================================
+### SERVICE ACCOUNTS
+### ========================================
+
+### List Service Accounts - M2M Member
+GET {{baseUrl}}/api/service-accounts
+Authorization: Bearer {{m2m_member}}
+
+###
+
+### Create Service Account - M2M Admin (expect 201)
+POST {{baseUrl}}/api/service-accounts
+Authorization: Bearer {{m2m_admin}}
+Content-Type: application/json
+
+{
+    "name": "test-sa",
+    "description": "Test service account",
+    "role": "member"
+}
+
+###
+
+### Create Service Account - PAT Member (expect 403)
+POST {{baseUrl}}/api/service-accounts
+Authorization: Bearer {{pat_member}}
+Content-Type: application/json
+
+{
+    "name": "member-sa",
+    "description": "Should fail"
+}
+
+###
+
+### ========================================
+### ORGANIZATION MEMBERS
+### ========================================
+
+### List Members - M2M Member
+GET {{baseUrl}}/api/orgs/members
+Authorization: Bearer {{m2m_member}}
+
+###
+
+### Invite Member - M2M Admin (expect 200)
+POST {{baseUrl}}/api/orgs/members/invite
+Authorization: Bearer {{m2m_admin}}
+Content-Type: application/json
+
+{
+    "email": "test@example.com",
+    "role": "member"
+}
+
+###
+
+### Invite Member - PAT Member (expect 403)
+POST {{baseUrl}}/api/orgs/members/invite
+Authorization: Bearer {{pat_member}}
+Content-Type: application/json
+
+{
+    "email": "test2@example.com",
+    "role": "member"
+}
+
+###
+
+### ========================================
+### ORGANIZATION SETTINGS
+### ========================================
+
+### List Settings - M2M Member
+GET {{baseUrl}}/api/settings
+Authorization: Bearer {{m2m_member}}
+
+###
+
+### Get Setting - PAT Owner
+GET {{baseUrl}}/api/settings/org.name
+Authorization: Bearer {{pat_owner}}
+
+###
+
+### Update Setting - M2M Admin (expect 200)
+PUT {{baseUrl}}/api/settings/org.name
+Authorization: Bearer {{m2m_admin}}
+Content-Type: application/json
+
+{
+    "value": "Updated Org Name"
+}
+
+###
+
+### Update Setting - PAT Member (expect 403)
+PUT {{baseUrl}}/api/settings/org.name
+Authorization: Bearer {{pat_member}}
+Content-Type: application/json
+
+{
+    "value": "Should Fail"
+}
+
+###
+
+### Get Limits - M2M Admin
+GET {{baseUrl}}/api/limits
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### ========================================
+### METRICS
+### ========================================
+
+### Today Metrics - M2M Member
+GET {{baseUrl}}/api/metrics/today
+Authorization: Bearer {{m2m_member}}
+
+###
+
+### Hourly Metrics - PAT Owner
+GET {{baseUrl}}/api/metrics/hourly?hours=24
+Authorization: Bearer {{pat_owner}}
+
+###
+
+### By Target Metrics - M2M Admin
+GET {{baseUrl}}/api/metrics/by-target?hours=24
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### Summary Metrics - PAT Member
+GET {{baseUrl}}/api/metrics/summary?hours=6
+Authorization: Bearer {{pat_member}}
+
+###
+
+### Query Metrics - M2M Admin (POST)
+POST {{baseUrl}}/api/metrics/query
+Authorization: Bearer {{m2m_admin}}
+Content-Type: application/json
+
+{
+    "hours": 24,
+    "group_by": "target"
+}
+
+###
+
+### ========================================
+### AUDIT LOGS
+### ========================================
+
+### List Audit Logs - M2M Member
+GET {{baseUrl}}/api/audit
+Authorization: Bearer {{m2m_member}}
+
+###
+
+### List Audit Logs with filters - PAT Owner
+GET {{baseUrl}}/api/audit?limit=10&action=server.create
+Authorization: Bearer {{pat_owner}}
+
+###
+
+### ========================================
+### ALERTS
+### ========================================
+
+### List Alert Rules - M2M Member
+GET {{baseUrl}}/api/alerts
+Authorization: Bearer {{m2m_member}}
+
+###
+
+### Get Active Alerts - PAT Owner
+GET {{baseUrl}}/api/alerts/active
+Authorization: Bearer {{pat_owner}}
+
+###
+
+### Get Alert History - M2M Admin
+GET {{baseUrl}}/api/alerts/history
+Authorization: Bearer {{m2m_admin}}
+
+###
+
+### Create Alert Rule - M2M Admin (expect 201)
+POST {{baseUrl}}/api/alerts
+Authorization: Bearer {{m2m_admin}}
+Content-Type: application/json
+
+{
+    "name": "Test Alert",
+    "alert_type": "threshold",
+    "metric": "error_rate",
+    "scope_type": "all",
+    "operator": "above",
+    "threshold": 0.1
+}
+
+###
+
+### Create Alert Rule - PAT Member (expect 403)
+POST {{baseUrl}}/api/alerts
+Authorization: Bearer {{pat_member}}
+Content-Type: application/json
+
+{
+    "name": "Member Alert",
+    "alert_type": "threshold",
+    "metric": "error_rate",
+    "scope_type": "all",
+    "operator": "above",
+    "threshold": 0.1
+}
+
+###
+
+### ========================================
+### ACCOUNT MANAGEMENT
+### ========================================
+
+### Preview Account Deletion - PAT Owner
+GET {{baseUrl}}/api/account/deletion-preview
+Authorization: Bearer {{pat_owner}}
+
+###
+
+### ========================================
+### MCP PROXY (Server Direct)
+### ========================================
+
+@org_slug = tm-dev-lab-org
+@server_name = weather-local-org
+
+### Initialize - M2M Member
+POST {{baseUrl}}/mcp/{{org_slug}}/{{server_name}}
+Authorization: Bearer {{m2m_member}}
+Content-Type: application/json
+
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {
+            "name": "test-client",
+            "version": "1.0.0"
+        }
+    }
+}
+
+###
+
+### Initialize - PAT Member
+POST {{baseUrl}}/mcp/{{org_slug}}/{{server_name}}
+Authorization: Bearer {{pat_member}}
+Content-Type: application/json
+
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {
+            "name": "test-client",
+            "version": "1.0.0"
+        }
+    }
+}
+
+###
+
+### List Tools - M2M Member
+POST {{baseUrl}}/mcp/{{org_slug}}/{{server_name}}
+Authorization: Bearer {{m2m_member}}
+Content-Type: application/json
+
+{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/list",
+    "params": {}
+}
+
+###
+
+### Call Tool - M2M Member
+POST {{baseUrl}}/mcp/{{org_slug}}/{{server_name}}
+Authorization: Bearer {{m2m_member}}
+Content-Type: application/json
+
+{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+        "name": "get_weather",
+        "arguments": {
+            "city": "Tokyo"
+        }
+    }
+}
+
+###
+
+### ========================================
+### MCP PROXY (Gateway)
+### ========================================
+
+@gateway_slug = tmdevlab-gateway
+
+### Initialize via Gateway - PAT Member
+POST {{baseUrl}}/mcp/{{org_slug}}/{{gateway_slug}}
+Authorization: Bearer {{pat_member}}
+Content-Type: application/json
+
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {
+            "name": "test-client",
+            "version": "1.0.0"
+        }
+    }
+}
+
+###
+
+### List Tools via Gateway - M2M Member
+POST {{baseUrl}}/mcp/{{org_slug}}/{{gateway_slug}}
+Authorization: Bearer {{m2m_member}}
+Content-Type: application/json
+
+{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/list",
+    "params": {}
+}
+
+###
