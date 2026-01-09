@@ -11,6 +11,7 @@ mod unit_tests {
 
     #[test]
     fn test_infrastructure_works() {
-        assert!(true);
+        let result = 1 + 1;
+        assert_eq!(result, 2);
     }
 }

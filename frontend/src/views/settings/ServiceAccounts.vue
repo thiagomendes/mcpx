@@ -401,8 +401,8 @@ function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString()
 }
 
-function formatScopes(scopes: string[]) {
-  return scopes.join(', ')
+function formatScopes(scopes: string[] | undefined) {
+  return scopes?.join(', ') || ''
 }
 
 onMounted(() => {

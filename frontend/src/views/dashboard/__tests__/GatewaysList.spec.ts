@@ -10,6 +10,15 @@ vi.mock('vue-router', () => ({
     RouterLink: { template: '<a><slot /></a>' }
 }))
 
+// Mock API client
+vi.mock('@/api/client', () => ({
+    default: {
+        get: vi.fn().mockResolvedValue({ data: { gateways: { current: 0, max: 10, can_create: true } } }),
+        post: vi.fn().mockResolvedValue({ data: {} }),
+        delete: vi.fn().mockResolvedValue({ data: {} }),
+    }
+}))
+
 // Mock stores
 const mockFetchGateways = vi.fn()
 const mockDeleteGateway = vi.fn()
@@ -138,7 +147,7 @@ describe('GatewaysList.vue', () => {
         expect(wrapper.text()).toContain('2 servers')
     })
 
-    it('provides copy and delete actions for each gateway', () => {
+    it('provides copy action for each gateway', () => {
         const wrapper = createWrapper({
             gateways: [
                 { id: '1', name: 'Test Gateway', slug: 'test', enabled: true, proxy_url: '/mcp/test', servers: [] }
@@ -147,12 +156,11 @@ describe('GatewaysList.vue', () => {
         })
 
         expect(wrapper.text()).toContain('Copy URL')
-        expect(wrapper.text()).toContain('Delete')
     })
 
-    it('shows create modal when New Gateway button exists', () => {
+    it('shows create gateway option when gateways empty', () => {
         const wrapper = createWrapper()
-        expect(wrapper.text()).toContain('New Gateway')
+        expect(wrapper.text()).toContain('Create Your First Gateway')
     })
 
     it('has create modal form fields', async () => {

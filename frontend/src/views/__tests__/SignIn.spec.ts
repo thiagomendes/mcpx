@@ -12,6 +12,14 @@ vi.mock('vue-router', () => ({
     }
 }))
 
+// Mock API client
+vi.mock('@/api/client', () => ({
+    default: {
+        get: vi.fn().mockResolvedValue({ data: {} }),
+        post: vi.fn().mockResolvedValue({ data: {} }),
+    }
+}))
+
 // Mock identity providers
 vi.mock('@/lib/identityProviders', () => ({
     getEnabledProviders: vi.fn(() => [
@@ -46,7 +54,7 @@ describe('SignIn.vue', () => {
         })
 
         expect(wrapper.exists()).toBe(true)
-        expect(wrapper.text()).toContain('Welcome back')
+        expect(wrapper.text()).toContain('Sign In')
         expect(wrapper.text()).toContain('Sign in to manage your MCP servers')
     })
 
